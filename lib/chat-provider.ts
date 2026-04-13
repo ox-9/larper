@@ -53,7 +53,7 @@ export async function streamChat(
 ): Promise<void> {
   const status = await detectProviders();
 
-  // Priority 1: Ollama direct (user preference for local, free AI)
+  // Priority 1: Ollama direct (if running locally)
   if (status.ollamaAvailable) {
     try {
       await streamOllamaChat(messages, callbacks, signal);
@@ -73,7 +73,13 @@ export async function streamChat(
       return;
     } catch (err) {
       if (signal.aborted) return;
-      callbacks.onError(err instanceof Error ? err.message : "Gemini chat failed");
+      const msg = err instanceof Error ? err.message : "Gemini chat failed";
+      // Handle rate limit specifically
+      if (msg.includes("429") || msg.includes("quota") || msg.includes("rate")) {
+        callbacks.onError("Gemini rate limit reached. Wait a minute and try again, or use a different API key (Settings button in navbar).");
+      } else {
+        callbacks.onError(msg);
+      }
       return;
     }
   }
@@ -85,7 +91,7 @@ export async function streamChat(
   } catch (err) {
     if (signal.aborted) return;
     callbacks.onError(
-      "No AI provider available. Start Ollama locally (ollama serve) or set a Gemini API key in Settings."
+      "No AI provider available. Set a Gemini API key via the Settings button in the navbar, or start Ollama locally."
     );
   }
 }

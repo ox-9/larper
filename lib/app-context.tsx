@@ -16,14 +16,13 @@ import type {
 } from "./types";
 import {
   extractGuidelinesFromPDF as extractWithGemini,
-  fileToBase64,
 } from "./gemini";
 import {
-  extractGuidelinesFromPDF as extractWithServer,
   batchCompareGuidelines,
   exportToExcel,
 } from "./ai-provider";
 import { getGeminiApiKey } from "./provider-detection";
+import { extractGuidelinesFromPDFClient } from "./pdf-extract-client";
 
 type AppContextType = {
   documentA: DocumentInfo;
@@ -143,26 +142,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try {
         let result: ExtractionResult | null = null;
 
-        // Priority 1: Gemini direct — works on deployed site (no server needed)
-        const apiKey = getGeminiApiKey();
-        if (apiKey) {
-          try {
-            result = await extractWithGemini(document.file, doc);
-          } catch (err) {
-            console.warn("Gemini extraction failed, trying server fallback:", err);
+        // Priority 1: Fast client-side PDF extraction (no AI, no server)
+        try {
+          const clientResult = await extractGuidelinesFromPDFClient(document.file, doc);
+          if (clientResult.success && clientResult.guidelines.length > 0) {
+            result = {
+              success: true,
+              guidelines: clientResult.guidelines,
+              fileName: document.file.name,
+              pageCount: clientResult.pageCount,
+              fileSize: document.file.size,
+              extractedAt: new Date().toISOString(),
+            };
           }
+        } catch (err) {
+          console.warn("Client PDF extraction failed:", err);
         }
 
-        // Priority 2: Server route fallback — works with `next dev`
+        // Priority 2: Gemini AI extraction (smarter, but may hit rate limits)
         if (!result || !result.success) {
-          try {
-            result = await extractWithServer(document.file, doc);
-          } catch (err) {
-            console.warn("Server extraction also failed:", err);
+          const apiKey = getGeminiApiKey();
+          if (apiKey) {
+            try {
+              result = await extractWithGemini(document.file, doc);
+            } catch (err) {
+              console.warn("Gemini extraction failed:", err);
+            }
           }
         }
 
-        // If both failed, produce a clear error
+        // If all methods failed, produce a clear error
         if (!result) {
           result = {
             success: false,
@@ -171,7 +180,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             pageCount: 0,
             fileSize: document.file.size,
             extractedAt: new Date().toISOString(),
-            error: "No AI provider available. Set a Gemini API key in Settings or run locally with `next dev`.",
+            error: "PDF extraction failed. The file may be encrypted or contain only images.",
           };
         }
 
