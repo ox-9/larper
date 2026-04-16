@@ -7,14 +7,14 @@ type ComparisonPageProps = {
   comparisonResult: ComparisonResult | null;
   isComparing: boolean;
   comparisonProgress: number;
-  onExportCSV: (type: "full" | "critical") => void;
+  onExportCSV: (type: "full" | "conflicts") => void;
   onExportExcel: () => void;
   onRunComparison: () => void;
   hasDocuments: boolean;
 };
 
 const verdictConfig = {
-  GO: {
+  Match: {
     bgColor: "bg-emerald-500/10",
     borderColor: "border-emerald-500/25",
     textColor: "text-emerald-400",
@@ -23,20 +23,9 @@ const verdictConfig = {
         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
       </svg>
     ),
-    label: "Compliant",
+    label: "Match",
   },
-  NO_GO: {
-    bgColor: "bg-red-500/10",
-    borderColor: "border-red-500/25",
-    textColor: "text-red-400",
-    icon: (
-      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-      </svg>
-    ),
-    label: "Non-Compliant",
-  },
-  REVIEW: {
+  Partial: {
     bgColor: "bg-amber-500/10",
     borderColor: "border-amber-500/25",
     textColor: "text-amber-400",
@@ -45,7 +34,29 @@ const verdictConfig = {
         <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
       </svg>
     ),
-    label: "Needs Review",
+    label: "Partial",
+  },
+  Conflict: {
+    bgColor: "bg-red-500/10",
+    borderColor: "border-red-500/25",
+    textColor: "text-red-400",
+    icon: (
+      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+      </svg>
+    ),
+    label: "Conflict",
+  },
+  Gap: {
+    bgColor: "bg-slate-500/10",
+    borderColor: "border-slate-500/25",
+    textColor: "text-slate-400",
+    icon: (
+      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+        <path fillRule="evenodd" d="M3 10a7 7 0 1114 0 7 7 0 01-14 0zm7-4a1 1 0 000 2v2a1 1 0 001 1h1a1 1 0 100-2h-1V7a1 1 0 00-1-1zm0 8a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+      </svg>
+    ),
+    label: "Gap",
   },
 };
 
@@ -67,7 +78,7 @@ function AnimatedScoreRing({ score, verdict }: { score: number; verdict: string 
   const circumference = 2 * Math.PI * 45;
   const progress = (animatedScore / 100) * circumference;
   const gradientColors =
-    verdict === "FULLY_COMPLIANT" ? ["#10b981", "#22c55e", "#14b8a6"]
+    verdict === "COMPLIANT" ? ["#10b981", "#22c55e", "#14b8a6"]
     : verdict === "NON_COMPLIANT" ? ["#ef4444", "#f43f5e", "#ec4899"]
     : ["#eab308", "#f59e0b", "#f97316"];
 
@@ -108,7 +119,7 @@ function GuidelineRow({
   return (
     <div
       className={`flex gap-4 p-4 border-b border-white/[0.04] transition-all hover:bg-white/[0.02] ${
-        comparison.verdict === "NO_GO" ? "shadow-[inset_3px_0_0_#dc2626]" : ""
+        comparison.verdict === "Conflict" ? "shadow-[inset_3px_0_0_#dc2626]" : ""
       } animate-fade-in-up`}
       style={{ animationDelay: `${index * 30}ms` }}
     >
@@ -127,18 +138,21 @@ function GuidelineRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
           <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-300 text-xs font-medium border border-white/[0.06]">
-            {comparison.sellerGuideline.category}
+            {comparison.newfiGuideline.category}
           </span>
           <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider bg-white/[0.04] text-slate-400 border border-white/[0.06]">
-            {comparison.sellerGuideline.severity}
+            {comparison.newfiGuideline.severity}
           </span>
         </div>
-        <p className="text-sm text-slate-300 line-clamp-2">{comparison.sellerGuideline.guideline}</p>
+        <p className="text-sm text-slate-300 line-clamp-2">{comparison.sellerGuideline?.guideline || "Not addressed in seller guide"}</p>
         {isExpanded && (
           <div className="mt-2 p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
             <p className="text-xs text-slate-400">{comparison.reason}</p>
             {comparison.conflictingNewfiRule && (
               <p className="text-xs text-red-400 mt-1"><strong>Conflicting Rule:</strong> {comparison.conflictingNewfiRule}</p>
+            )}
+            {comparison.verbatimQuote && comparison.verbatimQuote !== "Not addressed in seller guide" && (
+              <p className="text-xs text-blue-400 mt-1 italic"><strong>Verbatim:</strong> &ldquo;{comparison.verbatimQuote}&rdquo;</p>
             )}
           </div>
         )}
@@ -164,7 +178,7 @@ export function ComparisonPage({
   hasDocuments,
 }: ComparisonPageProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "GO" | "NO_GO" | "REVIEW">("all");
+  const [filter, setFilter] = useState<"all" | "Match" | "Partial" | "Conflict" | "Gap">("all");
 
   if (!hasDocuments) {
     return (
@@ -197,33 +211,37 @@ export function ComparisonPage({
             <AnimatedScoreRing score={comparisonResult.complianceScore} verdict={comparisonResult.overallVerdict} />
             <div className="flex-1">
               <h2 className="font-heading text-xl font-semibold text-white mb-4">Compliance Summary</h2>
-              <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="grid grid-cols-4 gap-3 mb-4">
                 <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 backdrop-blur-sm">
-                  <p className="text-2xl font-heading font-bold text-emerald-400 tabular-nums">{comparisonResult.goCount}</p>
-                  <p className="text-xs text-emerald-300">Compliant</p>
-                </div>
-                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 backdrop-blur-sm">
-                  <p className="text-2xl font-heading font-bold text-red-400 tabular-nums">{comparisonResult.noGoCount}</p>
-                  <p className="text-xs text-red-300">Non-Compliant</p>
+                  <p className="text-2xl font-heading font-bold text-emerald-400 tabular-nums">{comparisonResult.matchCount}</p>
+                  <p className="text-xs text-emerald-300">Match</p>
                 </div>
                 <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 backdrop-blur-sm">
-                  <p className="text-2xl font-heading font-bold text-amber-400 tabular-nums">{comparisonResult.reviewCount}</p>
-                  <p className="text-xs text-amber-300">Needs Review</p>
+                  <p className="text-2xl font-heading font-bold text-amber-400 tabular-nums">{comparisonResult.partialCount}</p>
+                  <p className="text-xs text-amber-300">Partial</p>
+                </div>
+                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 backdrop-blur-sm">
+                  <p className="text-2xl font-heading font-bold text-red-400 tabular-nums">{comparisonResult.conflictCount}</p>
+                  <p className="text-xs text-red-300">Conflict</p>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-500/10 border border-slate-500/20 backdrop-blur-sm">
+                  <p className="text-2xl font-heading font-bold text-slate-400 tabular-nums">{comparisonResult.gapCount}</p>
+                  <p className="text-xs text-slate-300">Gap</p>
                 </div>
               </div>
               <div className={`p-3 rounded-xl ${
-                comparisonResult.overallVerdict === "FULLY_COMPLIANT" ? "bg-emerald-500/15 border border-emerald-500/25"
+                comparisonResult.overallVerdict === "COMPLIANT" ? "bg-emerald-500/15 border border-emerald-500/25"
                 : comparisonResult.overallVerdict === "NON_COMPLIANT" ? "bg-red-500/15 border border-red-500/25"
                 : "bg-amber-500/15 border border-amber-500/25"
               }`}>
                 <p className={`font-semibold text-sm ${
-                  comparisonResult.overallVerdict === "FULLY_COMPLIANT" ? "text-emerald-400"
+                  comparisonResult.overallVerdict === "COMPLIANT" ? "text-emerald-400"
                   : comparisonResult.overallVerdict === "NON_COMPLIANT" ? "text-red-400"
                   : "text-amber-400"
                 }`}>
-                  {comparisonResult.overallVerdict === "FULLY_COMPLIANT" ? "✓ FULLY COMPLIANT"
-                  : comparisonResult.overallVerdict === "NON_COMPLIANT" ? `✗ NON-COMPLIANT — ${comparisonResult.noGoCount} critical issues`
-                  : "⚠ REVIEW REQUIRED"}
+                  {comparisonResult.overallVerdict === "COMPLIANT" ? "✓ COMPLIANT"
+                  : comparisonResult.overallVerdict === "NON_COMPLIANT" ? `✗ NON-COMPLIANT — ${comparisonResult.conflictCount} conflicts`
+                  : "⚠ PARTIALLY COMPLIANT"}
                 </p>
               </div>
             </div>
@@ -279,9 +297,9 @@ export function ComparisonPage({
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.25A2.25 2.25 0 003 5.25v13.5A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V5.25a2.25 2.25 0 00-2.25-2.25H10.5z" /></svg>
             Export Excel
           </button>
-          <button onClick={() => onExportCSV("critical")} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 text-red-300 text-sm font-medium hover:bg-red-500/15 transition-all border border-red-500/20">
+          <button onClick={() => onExportCSV("conflicts")} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 text-red-300 text-sm font-medium hover:bg-red-500/15 transition-all border border-red-500/20">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
-            Critical Issues Only (CSV)
+            Conflicts Only (CSV)
           </button>
         </div>
       )}
@@ -289,20 +307,21 @@ export function ComparisonPage({
       {/* Filter tabs */}
       {comparisonResult && (
         <div className="flex gap-2 flex-wrap">
-          {(["all", "GO", "NO_GO", "REVIEW"] as const).map((f) => (
+          {(["all", "Match", "Partial", "Conflict", "Gap"] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 filter === f
-                  ? f === "GO" ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/25"
-                  : f === "NO_GO" ? "bg-red-500/15 text-red-300 border border-red-500/25"
-                  : f === "REVIEW" ? "bg-amber-500/15 text-amber-300 border border-amber-500/25"
+                  ? f === "Match" ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/25"
+                  : f === "Partial" ? "bg-amber-500/15 text-amber-300 border border-amber-500/25"
+                  : f === "Conflict" ? "bg-red-500/15 text-red-300 border border-red-500/25"
+                  : f === "Gap" ? "bg-slate-500/15 text-slate-300 border border-slate-500/25"
                   : "bg-gradient-to-r from-brand-500 to-blue-500 text-white shadow-sm"
                   : "bg-white/[0.04] text-slate-400 hover:text-slate-900 dark:hover:text-slate-900 dark:hover:text-white hover:bg-white/[0.08] border border-white/[0.06]"
               }`}
             >
-              {f === "all" ? "All" : f.replace("_", " ")} ({f === "all" ? comparisonResult.comparisons.length : comparisonResult.comparisons.filter((c) => c.verdict === f).length})
+              {f === "all" ? "All" : f} ({f === "all" ? comparisonResult.comparisons.length : comparisonResult.comparisons.filter((c) => c.verdict === f).length})
             </button>
           ))}
         </div>

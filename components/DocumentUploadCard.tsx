@@ -5,7 +5,7 @@ import type { DocumentInfo } from "@/lib/types";
 
 type DocumentUploadCardProps = {
   document: DocumentInfo;
-  documentType: "A" | "B";
+  documentType: "A" | "B" | "C";
   onFileSelect: (file: File) => void;
   onExtract: () => void;
   onClear: () => void;
@@ -28,9 +28,9 @@ export function DocumentUploadCard({
   const [isHovered, setIsHovered] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const label = documentType === "A" ? "Seller Guide" : "NewFI Baseline";
-  const color = documentType === "A" ? "#0A84FF" : "#30D158";
-  const secondaryColor = documentType === "A" ? "#5E5CE6" : "#34C759";
+  const label = documentType === "A" ? "Seller Guide" : documentType === "B" ? "NewFI Baseline" : "NewFI Overlays";
+  const color = documentType === "A" ? "#0A84FF" : documentType === "B" ? "#30D158" : "#FF9F0A";
+  const secondaryColor = documentType === "A" ? "#5E5CE6" : documentType === "B" ? "#34C759" : "#FF6B35";
 
   function handleDragOver(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -121,7 +121,7 @@ export function DocumentUploadCard({
             <div className="flex-1">
               <h3 className="font-display font-semibold text-[16px] text-slate-900 dark:text-white">{label}</h3>
               <p className="text-[13px] text-slate-500 dark:text-slate-500 dark:text-[rgba(255,255,255,0.45)]">
-                {documentType === "A" ? "Upload seller guide PDF" : "Upload baseline PDF"}
+                {documentType === "A" ? "Upload seller guide PDF" : documentType === "B" ? "Upload baseline PDF" : "Upload overlay PDF"}
               </p>
             </div>
             {/* Status indicator */}
@@ -206,8 +206,33 @@ export function DocumentUploadCard({
                 </div>
               )}
 
+              {/* Error Display */}
+              {document.error && !isExtracting && (
+                <div
+                  className="flex items-start gap-3 px-4 py-3 rounded-[12px] animate-fade-in"
+                  style={{
+                    background: 'rgba(255, 59, 48, 0.1)',
+                    border: '1px solid rgba(255, 59, 48, 0.25)'
+                  }}
+                >
+                  <div className="w-6 h-6 rounded-full bg-[#FF453A] flex items-center justify-center shrink-0 mt-0.5">
+                    <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[14px] text-[#FF453A] font-medium leading-relaxed">{document.error}</p>
+                    {document.error?.includes("API key") && (
+                      <p className="text-[12px] text-[rgba(255,69,58,0.7)] mt-1">
+                        Get a free API key at aistudio.google.com/apikey
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Complete - Enhanced */}
-              {document.extracted && (
+              {document.extracted && !document.error && (
                 <div
                   className="flex items-center gap-3 px-5 py-3.5 rounded-[14px] animate-fade-in"
                   style={{

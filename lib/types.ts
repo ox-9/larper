@@ -75,7 +75,7 @@ export type ExtractedGuideline = {
   guideline: string;
   page_reference?: string;
   severity: "critical" | "standard" | "informational";
-  sourceDocument?: "A" | "B";
+  sourceDocument?: "A" | "B" | "C";
   // Array of page numbers where this guideline appears
   pages?: number[];
 };
@@ -90,26 +90,36 @@ export type ExtractionResult = {
   error?: string;
 };
 
-export type ComparisonVerdict = "GO" | "NO_GO" | "REVIEW";
+export type ComparisonVerdict = "Match" | "Partial" | "Conflict" | "Gap";
 
 export type GuidelineComparison = {
   id: string;
-  sellerGuideline: ExtractedGuideline;
+  sellerGuideline: ExtractedGuideline | null;
+  newfiGuideline: ExtractedGuideline;
   verdict: ComparisonVerdict;
   confidence: number;
   reason: string;
   conflictingNewfiRule: string | null;
+  verbatimQuote: string;
+  overlayApplied: boolean;
 };
 
 export type ComparisonResult = {
   totalGuidelines: number;
-  goCount: number;
-  noGoCount: number;
-  reviewCount: number;
+  matchCount: number;
+  partialCount: number;
+  conflictCount: number;
+  gapCount: number;
   complianceScore: number;
-  overallVerdict: "FULLY_COMPLIANT" | "NON_COMPLIANT" | "REVIEW_REQUIRED";
+  overallVerdict: "COMPLIANT" | "NON_COMPLIANT" | "PARTIALLY_COMPLIANT";
   comparisons: GuidelineComparison[];
   comparedAt: string;
+};
+
+export type OverlayAdjustment = {
+  originalText: string;
+  adjustedText: string;
+  source: string;
 };
 
 export type DocumentInfo = {
@@ -121,11 +131,13 @@ export type DocumentInfo = {
   extracted: boolean;
   guidelines: ExtractedGuideline[];
   pageCount: number;
+  error?: string;
 };
 
 export type AppState = {
   documentA: DocumentInfo;
   documentB: DocumentInfo;
+  overlayDocument: DocumentInfo;
   isExtracting: boolean;
   extractionProgress: number;
   comparisonResult: ComparisonResult | null;

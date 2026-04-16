@@ -17,12 +17,36 @@ type PDFDocumentProxy = {
 };
 
 let pdfjsLib: typeof import("pdfjs-dist") | null = null;
+let workerLoadAttempted = false;
+let workerLoadError: Error | null = null;
 
 async function loadPdfJs() {
   if (!pdfjsLib) {
-    pdfjsLib = await import("pdfjs-dist");
-    // Set worker source — use the CDN fallback so we don't need to copy the worker file
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+    try {
+      pdfjsLib = await import("pdfjs-dist");
+
+      // Check if we're on a static site (GitHub Pages)
+      const isStaticSite = typeof window !== "undefined" && (
+        window.location.hostname.includes("github.io") ||
+        window.location.hostname.includes(".netlify.app") ||
+        window.location.hostname.includes(".vercel.app")
+      );
+
+      if (!isStaticSite) {
+        // Only set worker source for regular deployments
+        // For static sites, we skip this to avoid CSP issues - pdf.js will use main thread
+        const pdfJsVersion = pdfjsLib.version || "4.8.69";
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfJsVersion}/pdf.worker.min.mjs`;
+      } else {
+        console.log("PDF.js: Running in main thread mode (no worker) for static site compatibility");
+      }
+
+      workerLoadAttempted = true;
+    } catch (err) {
+      workerLoadError = err instanceof Error ? err : new Error("Failed to load PDF library");
+      console.error("Failed to load pdfjs-dist:", err);
+      throw new Error("PDF library failed to load. Please refresh the page.");
+    }
   }
   return pdfjsLib;
 }
@@ -40,28 +64,87 @@ export async function extractTextFromPDFClient(file: File): Promise<{
   pages: string[];
   pageCount: number;
 }> {
-  const pdfjs = await loadPdfJs();
-  const arrayBuffer = await file.arrayBuffer();
-  const pdf: PDFDocumentProxy = await pdfjs.getDocument({ data: arrayBuffer }) as unknown as PDFDocumentProxy;
+  let pdf: PDFDocumentProxy | null = null;
+  try {
+    const pdfjs = await loadPdfJs();
 
-  const pages: string[] = [];
-  const pageTexts: string[] = [];
+    // Check if we had a previous worker load error
+    if (workerLoadError) {
+      throw new Error("PDF worker previously failed to initialize. Please refresh the page and try again.");
+    }
 
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    const pageText = content.items.map((item) => item.str).join(" ");
-    pages.push(pageText);
-    pageTexts.push(`--- Page ${i} ---\n${pageText}`);
+    const arrayBuffer = await file.arrayBuffer();
+
+    // Create an abort controller for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+    try {
+      // Load the PDF document
+      const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
+      pdf = await loadingTask.promise as unknown as PDFDocumentProxy;
+    } catch (loadErr) {
+      clearTimeout(timeoutId);
+      const loadMessage = loadErr instanceof Error ? loadErr.message : String(loadErr);
+
+      // Check for specific worker errors
+      if (loadMessage.includes("Worker") || loadMessage.includes("worker") || loadMessage.includes("workerSrc")) {
+        throw new Error("PDF worker failed to load from CDN. This may be due to a network issue, firewall, or Content Security Policy. Please check your internet connection or add a Gemini API key in Settings to use AI-based extraction instead.");
+      }
+      if (loadMessage.includes("fetch") || loadMessage.includes("network")) {
+        throw new Error("Failed to load PDF processing components from CDN. Network access is required for client-side PDF extraction, or you can add a Gemini API key in Settings.");
+      }
+      throw loadErr;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    const pages: string[] = [];
+    const pageTexts: string[] = [];
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      try {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        const pageText = content.items.map((item) => item.str).join(" ");
+        pages.push(pageText);
+        pageTexts.push(`--- Page ${i} ---\n${pageText}`);
+      } catch (pageErr) {
+        console.warn(`Failed to extract text from page ${i}:`, pageErr);
+        pages.push("");
+        pageTexts.push(`--- Page ${i} ---\n[Unable to extract text from this page]`);
+      }
+    }
+
+    return {
+      text: pageTexts.join("\n\n"),
+      pages,
+      pageCount: pdf.numPages,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+
+    // Provide more helpful error messages based on the error type
+    if (message.includes("Worker") || message.includes("worker") || message.includes("destroyed")) {
+      throw new Error("PDF worker failed to load. This may be due to: (1) Network/firewall blocking CDN access, (2) Content Security Policy restrictions, or (3) The PDF file being corrupted. Try adding a Gemini API key in Settings for AI-based extraction.");
+    }
+    if (message.includes("abort") || message.includes("Abort") || message.includes("timeout")) {
+      throw new Error("PDF extraction timed out after 30 seconds. The file may be too large or corrupted.");
+    }
+    if (message.includes("Invalid PDF") || message.includes("pdf")) {
+      throw new Error("The file appears to be invalid or corrupted. Please check that it's a valid PDF file.");
+    }
+
+    throw err;
+  } finally {
+    if (pdf) {
+      try {
+        pdf.destroy();
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
   }
-
-  pdf.destroy();
-
-  return {
-    text: pageTexts.join("\n\n"),
-    pages,
-    pageCount: pdf.numPages,
-  };
 }
 
 /** Detect severity from guideline text */
@@ -129,7 +212,7 @@ function detectCategory(text: string): string {
 function parseGuidelinesFromText(
   fullText: string,
   pages: string[],
-  documentType: "A" | "B"
+  documentType: "A" | "B" | "C"
 ): ExtractedGuideline[] {
   const guidelines: ExtractedGuideline[] = [];
   let idCounter = 1;
@@ -237,7 +320,7 @@ function deduplicateGuidelines(guidelines: ExtractedGuideline[]): ExtractedGuide
 /** Main extraction function — pure client-side, no AI needed */
 export async function extractGuidelinesFromPDFClient(
   file: File,
-  documentType: "A" | "B"
+  documentType: "A" | "B" | "C"
 ): Promise<{
   success: boolean;
   guidelines: ExtractedGuideline[];

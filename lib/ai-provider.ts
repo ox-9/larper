@@ -2,6 +2,7 @@ import type {
   ExtractedGuideline,
   ExtractionResult,
   GuidelineComparison,
+  ComparisonResult,
 } from "./types";
 
 // Page map entry from upload API
@@ -80,7 +81,7 @@ export async function extractGuidelinesWithPython(
 // Extract using Ollama AI for intelligent guideline extraction
 export async function extractGuidelinesWithOllama(
   file: File,
-  documentType: "A" | "B"
+  documentType: "A" | "B" | "C"
 ): Promise<{
   guidelines: ExtractedGuideline[];
   success: boolean;
@@ -395,7 +396,7 @@ function deduplicateGuidelines(guidelines: ExtractedGuideline[]): ExtractedGuide
 // Hierarchical section extraction - Python first (fast), Ollama optional
 export async function extractGuidelinesFromPDF(
   file: File,
-  documentType: "A" | "B"
+  documentType: "A" | "B" | "C"
 ): Promise<ExtractionResult> {
   const startTime = performance.now();
 
@@ -464,7 +465,7 @@ function parseHierarchicalSections(
   text: string,
   sectionChunks: Array<{heading: string; content: string; pages?: number[]}>,
   pageMap: Map<string, number[]>,
-  documentType: "A" | "B"
+  documentType: "A" | "B" | "C"
 ): ExtractedGuideline[] {
   const sections: ExtractedGuideline[] = [];
   // Match section numbers: 1., 1.1, 1.1.1, 1.1.1.1 etc.
@@ -656,7 +657,7 @@ function detectCategoryFromText(text: string): string {
 // Legacy extraction for fallback
 export async function extractGuidelinesLegacy(
   file: File,
-  documentType: "A" | "B"
+  documentType: "A" | "B" | "C"
 ): Promise<ExtractionResult> {
   const startTime = performance.now();
 
@@ -879,7 +880,36 @@ export async function extractGuidelinesLegacy(
   }
 }
 
-// Find the best matching Newfi guideline for a seller guideline using text similarity
+// Find the best matching seller guideline for a Newfi baseline guideline
+function findBestMatchingSellerGuideline(
+  newfiGuideline: ExtractedGuideline,
+  sellerGuidelines: ExtractedGuideline[]
+): { guideline: ExtractedGuideline | null; similarity: number } {
+  const newfiCategory = newfiGuideline.category.toLowerCase();
+
+  // Filter to same category first
+  const categoryMatches = sellerGuidelines.filter(
+    g => g.category.toLowerCase() === newfiCategory || g.category === "General"
+  );
+
+  // If no category matches, try all guidelines
+  const candidates = categoryMatches.length > 0 ? categoryMatches : sellerGuidelines;
+
+  let bestMatch: ExtractedGuideline | null = null;
+  let bestSimilarity = 0;
+
+  for (const sellerGuideline of candidates) {
+    const similarity = calculateSimilarity(newfiGuideline.guideline, sellerGuideline.guideline);
+    if (similarity > bestSimilarity) {
+      bestSimilarity = similarity;
+      bestMatch = sellerGuideline;
+    }
+  }
+
+  return { guideline: bestMatch, similarity: bestSimilarity };
+}
+
+// Find the best matching Newfi guideline for a seller guideline (legacy, used by export)
 function findBestMatchingNewfiGuideline(
   sellerGuideline: ExtractedGuideline,
   newfiGuidelines: ExtractedGuideline[]
@@ -909,162 +939,239 @@ function findBestMatchingNewfiGuideline(
   return { guideline: bestMatch, similarity: bestSimilarity };
 }
 
-// Fast comparison using rule-based matching with similarity analysis
-export async function compareGuideline(
-  sellerGuideline: ExtractedGuideline,
-  newfiGuidelines: ExtractedGuideline[]
-): Promise<GuidelineComparison> {
-  try {
-    const sellerText = sellerGuideline.guideline.toLowerCase();
-    const sellerCategory = sellerGuideline.category.toLowerCase();
+// Extract a verbatim quote from the seller guideline text (1-3 sentences)
+function extractVerbatimQuote(text: string, maxSentences: number = 2): string {
+  if (!text || text.trim().length === 0) return "Not addressed in seller guide";
 
-    // Find the best matching Newfi guideline using similarity
-    const { guideline: bestMatch, similarity } = findBestMatchingNewfiGuideline(
-      sellerGuideline,
-      newfiGuidelines
-    );
+  // Split into sentences
+  const sentences = text
+    .split(/(?<=[.!?])\s+/)
+    .map(s => s.trim())
+    .filter(s => s.length > 10);
 
-    let verdict: "GO" | "NO_GO" | "REVIEW" = "REVIEW";
-    let confidence = Math.round(similarity * 100);
-    let reason = "No matching Newfi guideline found";
-    let conflictingRule: string | null = null;
+  if (sentences.length === 0) return text.slice(0, 200).trim();
 
-    if (bestMatch) {
-      const newfiText = bestMatch.guideline.toLowerCase();
-
-      // Check for numeric conflicts first
-      const sellerNumbers = sellerText.match(/\d+/g) || [];
-      const newfiNumbers = newfiText.match(/\d+/g) || [];
-
-      const hasNumericConflict = sellerNumbers.length > 0 && newfiNumbers.length > 0 &&
-        ((sellerText.includes('minimum') && newfiText.includes('minimum')) ||
-         (sellerText.includes('maximum') && newfiText.includes('maximum')));
-
-      if (hasNumericConflict && sellerNumbers[0] && newfiNumbers[0]) {
-        // Extract the main numeric values
-        const sellerMin = parseInt(sellerNumbers[0], 10);
-        const newfiMin = parseInt(newfiNumbers[0], 10);
-
-        if (!isNaN(sellerMin) && !isNaN(newfiMin)) {
-          if (sellerText.includes('minimum') && sellerMin < newfiMin) {
-            verdict = "NO_GO";
-            confidence = 90;
-            reason = `Seller minimum (${sellerMin}) below Newfi minimum (${newfiMin})`;
-            conflictingRule = bestMatch.guideline;
-          } else if (sellerText.includes('maximum') && sellerMin > newfiMin) {
-            verdict = "NO_GO";
-            confidence = 90;
-            reason = `Seller maximum (${sellerMin}) exceeds Newfi maximum (${newfiMin})`;
-            conflictingRule = bestMatch.guideline;
-          } else {
-            verdict = "GO";
-            confidence = 85;
-            reason = "Numeric values align with Newfi guidelines";
-          }
-        }
-      } else if (similarity > 0.75) {
-        // High similarity means guidelines are essentially the same
-        verdict = "GO";
-        confidence = Math.round(similarity * 100);
-        reason = "Guidelines are substantially similar";
-      } else if (similarity > 0.50) {
-        // Moderate similarity - may have minor differences
-        verdict = "GO";
-        confidence = Math.round(similarity * 100);
-        reason = "Guidelines are similar with minor differences";
-      } else {
-        // Low similarity - needs review
-        verdict = "REVIEW";
-        confidence = Math.round(similarity * 100);
-        reason = "Unable to determine alignment with Newfi guidelines";
-        conflictingRule = bestMatch.guideline;
-      }
-    } else {
-      // No matching Newfi guideline found
-      verdict = "REVIEW";
-      confidence = 30;
-      reason = "No matching Newfi guideline found for this category";
-    }
-
-    // If it's informational, mark as GO
-    if (sellerGuideline.severity === "informational") {
-      verdict = "GO";
-      confidence = 95;
-      reason = "Informational guideline - no compliance requirement";
-    }
-
-    return {
-      id: `comparison-${sellerGuideline.id}`,
-      sellerGuideline,
-      verdict,
-      confidence,
-      reason,
-      conflictingNewfiRule: conflictingRule,
-    };
-  } catch (error) {
-    return {
-      id: `comparison-${sellerGuideline.id}`,
-      sellerGuideline,
-      verdict: "REVIEW",
-      confidence: 0,
-      reason: "Analysis failed — manual review required",
-      conflictingNewfiRule: null,
-    };
-  }
+  // Take the first N sentences that are most substantive
+  const quote = sentences.slice(0, maxSentences).join(" ");
+  return quote.length > 300 ? quote.slice(0, 297) + "..." : quote;
 }
 
-// Batch compare guidelines - all at once for speed
+// Compare a single baseline row against seller guidelines using 4-tier classification
+// This is the core classification engine — every row MUST reach a definitive verdict
+function classifyRow(
+  newfiGuideline: ExtractedGuideline,
+  sellerGuidelines: ExtractedGuideline[],
+  overlayApplied: boolean = false
+): GuidelineComparison {
+  const newfiText = newfiGuideline.guideline.toLowerCase();
+  const newfiCategory = newfiGuideline.category.toLowerCase();
+
+  // Find the best matching seller guideline
+  const { guideline: bestSellerMatch, similarity } = findBestMatchingSellerGuideline(
+    newfiGuideline,
+    sellerGuidelines
+  );
+
+  // No seller match found → Gap (seller is silent on this topic)
+  if (!bestSellerMatch) {
+    return {
+      id: `comparison-${newfiGuideline.id}`,
+      sellerGuideline: null,
+      newfiGuideline,
+      verdict: "Gap",
+      confidence: 80,
+      reason: `No seller guideline found for "${newfiGuideline.category}" — seller is silent on this topic`,
+      conflictingNewfiRule: null,
+      verbatimQuote: "Not addressed in seller guide",
+      overlayApplied,
+    };
+  }
+
+  const sellerText = bestSellerMatch.guideline.toLowerCase();
+
+  // Check for numeric conflicts (threshold mismatches)
+  const sellerNumbers = sellerText.match(/\d+/g) || [];
+  const newfiNumbers = newfiText.match(/\d+/g) || [];
+
+  const hasNumericContext =
+    sellerNumbers.length > 0 && newfiNumbers.length > 0 &&
+    ((sellerText.includes("minimum") && newfiText.includes("minimum")) ||
+     (sellerText.includes("maximum") && newfiText.includes("maximum")) ||
+     (sellerText.includes("min") && newfiText.includes("min")) ||
+     (sellerText.includes("max") && newfiText.includes("max")));
+
+  if (hasNumericContext && sellerNumbers[0] && newfiNumbers[0]) {
+    const sellerVal = parseInt(sellerNumbers[0], 10);
+    const newfiVal = parseInt(newfiNumbers[0], 10);
+
+    if (!isNaN(sellerVal) && !isNaN(newfiVal)) {
+      // Conflict: seller minimum < baseline minimum, or seller maximum > baseline maximum
+      if ((sellerText.includes("minimum") || sellerText.includes("min")) && sellerVal < newfiVal) {
+        return {
+          id: `comparison-${newfiGuideline.id}`,
+          sellerGuideline: bestSellerMatch,
+          newfiGuideline,
+          verdict: "Conflict",
+          confidence: 92,
+          reason: `Seller minimum (${sellerVal}) is below Newfi minimum (${newfiVal})`,
+          conflictingNewfiRule: newfiGuideline.guideline,
+          verbatimQuote: extractVerbatimQuote(bestSellerMatch.guideline),
+          overlayApplied,
+        };
+      }
+      if ((sellerText.includes("maximum") || sellerText.includes("max")) && sellerVal > newfiVal) {
+        return {
+          id: `comparison-${newfiGuideline.id}`,
+          sellerGuideline: bestSellerMatch,
+          newfiGuideline,
+          verdict: "Conflict",
+          confidence: 92,
+          reason: `Seller maximum (${sellerVal}) exceeds Newfi maximum (${newfiVal})`,
+          conflictingNewfiRule: newfiGuideline.guideline,
+          verbatimQuote: extractVerbatimQuote(bestSellerMatch.guideline),
+          overlayApplied,
+        };
+      }
+
+      // Numeric values align
+      return {
+        id: `comparison-${newfiGuideline.id}`,
+        sellerGuideline: bestSellerMatch,
+        newfiGuideline,
+        verdict: "Match",
+        confidence: 88,
+        reason: "Numeric values align with Newfi guidelines",
+        conflictingNewfiRule: null,
+        verbatimQuote: extractVerbatimQuote(bestSellerMatch.guideline),
+        overlayApplied,
+      };
+    }
+  }
+
+  // Informational baseline guidelines auto-resolve as Match
+  if (newfiGuideline.severity === "informational" || bestSellerMatch.severity === "informational") {
+    return {
+      id: `comparison-${newfiGuideline.id}`,
+      sellerGuideline: bestSellerMatch,
+      newfiGuideline,
+      verdict: "Match",
+      confidence: 95,
+      reason: "Informational guideline — no compliance conflict",
+      conflictingNewfiRule: null,
+      verbatimQuote: extractVerbatimQuote(bestSellerMatch.guideline),
+      overlayApplied,
+    };
+  }
+
+  // Similarity-based classification
+  if (similarity >= 0.70) {
+    // High similarity: guidelines are substantially the same
+    return {
+      id: `comparison-${newfiGuideline.id}`,
+      sellerGuideline: bestSellerMatch,
+      newfiGuideline,
+      verdict: "Match",
+      confidence: Math.round(similarity * 100),
+      reason: "Guidelines are substantially similar",
+      conflictingNewfiRule: null,
+      verbatimQuote: extractVerbatimQuote(bestSellerMatch.guideline),
+      overlayApplied,
+    };
+  }
+
+  if (similarity >= 0.40) {
+    // Moderate similarity: similar with caveats
+    return {
+      id: `comparison-${newfiGuideline.id}`,
+      sellerGuideline: bestSellerMatch,
+      newfiGuideline,
+      verdict: "Partial",
+      confidence: Math.round(similarity * 100),
+      reason: "Guidelines are similar with notable differences",
+      conflictingNewfiRule: null,
+      verbatimQuote: extractVerbatimQuote(bestSellerMatch.guideline),
+      overlayApplied,
+    };
+  }
+
+  // Low similarity but some match exists: check for potential conflict keywords
+  const conflictKeywords = ["prohibited", "not allowed", "must not", "shall not", "cannot", "not permitted", "ineligible", "excluded"];
+  const sellerHasConflict = conflictKeywords.some(kw => sellerText.includes(kw));
+  const newfiHasConflict = conflictKeywords.some(kw => newfiText.includes(kw));
+
+  if (sellerHasConflict !== newfiHasConflict && similarity > 0.20) {
+    // One prohibits, the other doesn't → Conflict
+    return {
+      id: `comparison-${newfiGuideline.id}`,
+      sellerGuideline: bestSellerMatch,
+      newfiGuideline,
+      verdict: "Conflict",
+      confidence: 70,
+      reason: "Seller and Newfi guidelines have conflicting requirements",
+      conflictingNewfiRule: newfiGuideline.guideline,
+      verbatimQuote: extractVerbatimQuote(bestSellerMatch.guideline),
+      overlayApplied,
+    };
+  }
+
+  // Very low similarity with a match: treat as Gap (seller doesn't adequately address this topic)
+  return {
+    id: `comparison-${newfiGuideline.id}`,
+    sellerGuideline: bestSellerMatch,
+    newfiGuideline,
+    verdict: "Gap",
+    confidence: Math.max(Math.round(similarity * 100), 30),
+    reason: `Seller does not adequately address this topic (similarity: ${Math.round(similarity * 100)}%)`,
+    conflictingNewfiRule: null,
+    verbatimQuote: extractVerbatimQuote(bestSellerMatch.guideline),
+    overlayApplied,
+  };
+}
+
+// Batch compare guidelines — iterates over baseline (Newfi) rows first to fix alignment
 export async function batchCompareGuidelines(
   sellerGuidelines: ExtractedGuideline[],
   newfiGuidelines: ExtractedGuideline[],
   onProgress?: (current: number, total: number) => void
-): Promise<{
-  totalGuidelines: number;
-  goCount: number;
-  noGoCount: number;
-  reviewCount: number;
-  complianceScore: number;
-  overallVerdict: "FULLY_COMPLIANT" | "NON_COMPLIANT" | "REVIEW_REQUIRED";
-  comparisons: GuidelineComparison[];
-  comparedAt: string;
-}> {
+): Promise<ComparisonResult> {
   const comparisons: GuidelineComparison[] = [];
-  const totalGuidelines = sellerGuidelines.length;
+  const totalGuidelines = newfiGuidelines.length;
 
-  // Process all in parallel - no delays
-  const promises = sellerGuidelines.map((guideline, index) =>
-    compareGuideline(guideline, newfiGuidelines).then(result => {
-      if (onProgress) {
-        onProgress(index + 1, totalGuidelines);
-      }
-      return result;
-    })
-  );
+  // Iterate over baseline (Newfi) guidelines as the primary row source
+  // This ensures Newfi's guidelines are the row anchor — no shift-down bug
+  for (let i = 0; i < newfiGuidelines.length; i++) {
+    const newfiGuideline = newfiGuidelines[i];
+    const result = classifyRow(newfiGuideline, sellerGuidelines);
+    comparisons.push(result);
 
-  const results = await Promise.all(promises);
-  comparisons.push(...results);
+    if (onProgress) {
+      onProgress(i + 1, totalGuidelines);
+    }
+  }
 
-  const goCount = comparisons.filter((c) => c.verdict === "GO").length;
-  const noGoCount = comparisons.filter((c) => c.verdict === "NO_GO").length;
-  const reviewCount = comparisons.filter((c) => c.verdict === "REVIEW").length;
+  const matchCount = comparisons.filter((c) => c.verdict === "Match").length;
+  const partialCount = comparisons.filter((c) => c.verdict === "Partial").length;
+  const conflictCount = comparisons.filter((c) => c.verdict === "Conflict").length;
+  const gapCount = comparisons.filter((c) => c.verdict === "Gap").length;
   const complianceScore = totalGuidelines > 0
-    ? Math.round((goCount / totalGuidelines) * 100)
+    ? Math.round((matchCount / totalGuidelines) * 100)
     : 0;
 
-  let overallVerdict: "FULLY_COMPLIANT" | "NON_COMPLIANT" | "REVIEW_REQUIRED";
-  if (noGoCount > 0) {
+  let overallVerdict: "COMPLIANT" | "NON_COMPLIANT" | "PARTIALLY_COMPLIANT";
+  if (conflictCount > 0) {
     overallVerdict = "NON_COMPLIANT";
-  } else if (reviewCount > 0) {
-    overallVerdict = "REVIEW_REQUIRED";
+  } else if (matchCount === totalGuidelines) {
+    overallVerdict = "COMPLIANT";
   } else {
-    overallVerdict = "FULLY_COMPLIANT";
+    overallVerdict = "PARTIALLY_COMPLIANT";
   }
 
   return {
     totalGuidelines,
-    goCount,
-    noGoCount,
-    reviewCount,
+    matchCount,
+    partialCount,
+    conflictCount,
+    gapCount,
     complianceScore,
     overallVerdict,
     comparisons,
@@ -1072,10 +1179,10 @@ export async function batchCompareGuidelines(
   };
 }
 
-// Export to CSV - Professional Comparison Format
+// Export to CSV - Professional Comparison Format (v2.3)
 export function exportToCSV(
   data: ExtractedGuideline[] | GuidelineComparison[],
-  type: "guidelines" | "comparison" | "critical-only",
+  type: "guidelines" | "comparison" | "conflicts-only",
   newfiGuidelines?: ExtractedGuideline[]
 ): string {
   if (type === "guidelines") {
@@ -1092,24 +1199,25 @@ export function exportToCSV(
   }
 
   const comparisons = (data as GuidelineComparison[]).filter(
-    (c) => type === "comparison" || c.verdict === "NO_GO"
+    (c) => type === "comparison" || c.verdict === "Conflict"
   );
 
-  // Professional comparison format
+  // Professional comparison format (v2.3)
   const rows: string[][] = [];
 
   // Header
   rows.push(["FINDINGS KEY"]);
-  rows.push(["Seller is MORE Restrictive or we accept their guideline as is"]);
-  rows.push(["Seller is LESS Restrictive or MUST MEET Newfi Guidelines"]);
-  rows.push(["SAME (Similar with minor differences)"]);
+  rows.push(["Match — Seller guideline aligns with Newfi baseline"]);
+  rows.push(["Partial — Seller guideline is similar but has notable differences"]);
+  rows.push(["Conflict — Seller guideline contradicts Newfi baseline"]);
+  rows.push(["Gap — Seller does not address this topic"]);
   rows.push([]);
-  rows.push(["CATEGORY", "Newfi Guidelines", "Seller Guide", "Findings", "Page Reference"]);
+  rows.push(["CATEGORY", "Newfi Guidelines", "Seller Guide", "Findings", "Page(s)", "Verbatim Quote"]);
 
-  // Group by category
+  // Group by category (using baseline category as anchor)
   const groupedByCategory = new Map<string, GuidelineComparison[]>();
   comparisons.forEach((comp) => {
-    const category = comp.sellerGuideline.category || "General";
+    const category = comp.newfiGuideline.category || "General";
     if (!groupedByCategory.has(category)) {
       groupedByCategory.set(category, []);
     }
@@ -1122,25 +1230,15 @@ export function exportToCSV(
     const comps = groupedByCategory.get(category)!;
 
     comps.forEach((comp, idx) => {
-      const newfiText = newfiGuidelines?.find(
-        (g) => g.category.toLowerCase() === category.toLowerCase()
-      )?.guideline || "N/A";
-
-      let findings = "";
-      if (comp.verdict === "GO") {
-        findings = "SAME";
-      } else if (comp.verdict === "NO_GO") {
-        findings = "Seller is LESS Restrictive - MUST MEET Newfi Guidelines";
-      } else {
-        findings = "REVIEW REQUIRED";
-      }
+      const sellerText = comp.sellerGuideline?.guideline || "Not addressed";
 
       rows.push([
         idx === 0 ? category.toUpperCase() : "",
-        `"${newfiText.replace(/"/g, '""')}"`,
-        `"${comp.sellerGuideline.guideline.replace(/"/g, '""')}"`,
-        findings,
-        comp.sellerGuideline.page_reference || "N/A",
+        `"${comp.newfiGuideline.guideline.replace(/"/g, '""')}"`,
+        `"${sellerText.replace(/"/g, '""')}"`,
+        comp.verdict,
+        comp.sellerGuideline?.page_reference || comp.sellerGuideline?.pages?.sort((a, b) => a - b).join(", ") || "N/A",
+        `"${comp.verbatimQuote.replace(/"/g, '""')}"`,
       ]);
     });
   });
@@ -1161,7 +1259,7 @@ export function downloadCSV(content: string, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-// Export to Excel - EXACT format matching the professional comparison matrix
+// Export to Excel - v2.3 format matching Newfi's Guideline Review template
 export async function exportToExcel(
   documentA: ExtractedGuideline[] | null,
   documentB: ExtractedGuideline[] | null,
@@ -1177,22 +1275,24 @@ export async function exportToExcel(
   // Define colors
   const darkBlue = { argb: "1F4E78" };
   const lightBlue = { argb: "D6DCE5" };
-  const greenBg = { argb: "C6EFCE" };
-  const redBg = { argb: "FFC7CE" };
-  const yellowBg = { argb: "FFEB9C" };
+  const greenBg = { argb: "C6EFCE" };   // Match
+  const yellowBg = { argb: "FFEB9C" };   // Partial
+  const redBg = { argb: "FFC7CE" };       // Conflict
+  const grayBg = { argb: "D9D9D9" };      // Gap
   const whiteFont = { argb: "FFFFFF" };
   const blackFont = { argb: "000000" };
   const redFont = { argb: "FF0000" };
 
-  // Set column widths
+  // Set column widths — 6 columns now (A-F)
   sheet.getColumn("A").width = 18;
   sheet.getColumn("B").width = 50;
   sheet.getColumn("C").width = 50;
-  sheet.getColumn("D").width = 25;
-  sheet.getColumn("E").width = 15; // Page Reference column
+  sheet.getColumn("D").width = 20;
+  sheet.getColumn("E").width = 15;
+  sheet.getColumn("F").width = 55; // Verbatim Quote column
 
   // Row 1: FINDINGS KEY header
-  sheet.mergeCells("A1:E1");
+  sheet.mergeCells("A1:F1");
   const keyHeader = sheet.getCell("A1");
   keyHeader.value = "FINDINGS KEY:";
   keyHeader.font = { bold: true, size: 11 };
@@ -1201,80 +1301,71 @@ export async function exportToExcel(
   sheet.getRow(1).height = 20;
 
   // Row 2: Font in Red note
-  sheet.mergeCells("A2:E2");
+  sheet.mergeCells("A2:F2");
   const redNote = sheet.getCell("A2");
   redNote.value = "Font in Red is more restrictive";
   redNote.font = { size: 9, color: redFont };
   redNote.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFF" } };
   sheet.getRow(2).height = 15;
 
-  // Row 3: Green indicator - Seller is MORE Restrictive
-  sheet.mergeCells("A3:E3");
+  // Row 3: Match — green
+  sheet.mergeCells("A3:F3");
   const row3 = sheet.getCell("A3");
-  row3.value = "●  Seller is MORE Restrictive or we accept their guideline as is";
+  row3.value = "●  Match — Seller guideline aligns with Newfi baseline";
   row3.font = { size: 9 };
   row3.fill = { type: "pattern", pattern: "solid", fgColor: greenBg };
   row3.alignment = { vertical: "middle" };
   sheet.getRow(3).height = 18;
 
-  // Row 4: Red indicator - Seller is LESS Restrictive
-  sheet.mergeCells("A4:E4");
+  // Row 4: Conflict — red
+  sheet.mergeCells("A4:F4");
   const row4 = sheet.getCell("A4");
-  row4.value = "●  Seller is LESS Restrictive or MUST MEET Newfi Guidelines";
+  row4.value = "●  Conflict — Seller guideline contradicts Newfi baseline";
   row4.font = { size: 9 };
   row4.fill = { type: "pattern", pattern: "solid", fgColor: redBg };
   row4.alignment = { vertical: "middle" };
   sheet.getRow(4).height = 18;
 
-  // Row 5: Yellow indicator - SAME
-  sheet.mergeCells("A5:E5");
+  // Row 5: Partial — yellow
+  sheet.mergeCells("A5:F5");
   const row5 = sheet.getCell("A5");
-  row5.value = "●  SAME (Similar with minor differences)";
+  row5.value = "●  Partial — Seller guideline is similar but has notable differences";
   row5.font = { size: 9 };
   row5.fill = { type: "pattern", pattern: "solid", fgColor: yellowBg };
   row5.alignment = { vertical: "middle" };
   sheet.getRow(5).height = 18;
 
-  // Row 6: Empty separator
-  sheet.getRow(6).height = 5;
+  // Row 6: Gap — gray
+  sheet.mergeCells("A6:F6");
+  const row6 = sheet.getCell("A6");
+  row6.value = "●  Gap — Seller does not address this topic";
+  row6.font = { size: 9 };
+  row6.fill = { type: "pattern", pattern: "solid", fgColor: grayBg };
+  row6.alignment = { vertical: "middle" };
+  sheet.getRow(6).height = 18;
 
-  // Row 7: Column headers (Blue background, white text)
-  const headerRow = sheet.getRow(7);
+  // Row 7: Empty separator
+  sheet.getRow(7).height = 5;
+
+  // Row 8: Column headers (Blue background, white text)
+  const headerRow = sheet.getRow(8);
   headerRow.height = 25;
 
-  const cellA7 = sheet.getCell("A7");
-  cellA7.value = "";
-  cellA7.fill = { type: "pattern", pattern: "solid", fgColor: darkBlue };
-  cellA7.font = { bold: true, color: whiteFont, size: 11 };
-  cellA7.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+  const headerConfig: [string, string][] = [
+    ["A8", "Category"],
+    ["B8", documentB && documentB.length > 0 ? "Newfi Guidelines" : "Newfi CORR Non-QM 3-16-2026"],
+    ["C8", documentA && documentA.length > 0 ? "Seller Guide" : "ENTER Seller Guide Name & Date Here"],
+    ["D8", "Findings"],
+    ["E8", "Page(s)"],
+    ["F8", "Verbatim Quote"],
+  ];
 
-  const cellB7 = sheet.getCell("B7");
-  cellB7.value = documentB && documentB.length > 0 ? "Newfi Guidelines" : "Newfi CORR Non-QM 3-16-2026";
-  cellB7.fill = { type: "pattern", pattern: "solid", fgColor: darkBlue };
-  cellB7.font = { bold: true, color: whiteFont, size: 11 };
-  cellB7.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-
-  const cellC7 = sheet.getCell("C7");
-  cellC7.value = documentA && documentA.length > 0 ? "Seller Guide" : "ENTER Seller Guide Name & Date Here";
-  cellC7.fill = { type: "pattern", pattern: "solid", fgColor: darkBlue };
-  cellC7.font = { bold: true, color: whiteFont, size: 11 };
-  cellC7.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-
-  const cellD7 = sheet.getCell("D7");
-  cellD7.value = "Findings";
-  cellD7.fill = { type: "pattern", pattern: "solid", fgColor: darkBlue };
-  cellD7.font = { bold: true, color: whiteFont, size: 11 };
-  cellD7.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-
-  const cellE7 = sheet.getCell("E7");
-  cellE7.value = "Page(s)";
-  cellE7.fill = { type: "pattern", pattern: "solid", fgColor: darkBlue };
-  cellE7.font = { bold: true, color: whiteFont, size: 11 };
-  cellE7.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-
-  // Add borders to header
-  ["A7", "B7", "C7", "D7", "E7"].forEach((cellRef) => {
+  headerConfig.forEach(([cellRef, value]) => {
     const cell = sheet.getCell(cellRef);
+    cell.value = value;
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: darkBlue };
+    cell.font = { bold: true, color: whiteFont, size: 11 };
+    cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
     cell.border = {
       top: { style: "thin", color: { argb: "000000" } },
       left: { style: "thin", color: { argb: "000000" } },
@@ -1283,14 +1374,14 @@ export async function exportToExcel(
     };
   });
 
-  // Data rows
-  let currentRow = 8;
+  // Data rows — iterate over baseline (Newfi) rows to fix alignment
+  let currentRow = 9;
 
   if (comparisons && comparisons.length > 0) {
-    // Group by category
+    // Group by Newfi baseline category (not seller category) — fixes row alignment
     const groupedByCategory = new Map<string, GuidelineComparison[]>();
     comparisons.forEach((comp) => {
-      const category = comp.sellerGuideline.category || "General";
+      const category = comp.newfiGuideline.category || "General";
       if (!groupedByCategory.has(category)) {
         groupedByCategory.set(category, []);
       }
@@ -1304,13 +1395,6 @@ export async function exportToExcel(
       const categoryStartRow = currentRow;
 
       comps.forEach((comp, idx) => {
-        // Find the best matching Newfi guideline using similarity
-        const { guideline: bestMatch } = findBestMatchingNewfiGuideline(
-          comp.sellerGuideline,
-          documentB || []
-        );
-        const newfiText = bestMatch?.guideline || "N/A";
-
         const row = sheet.getRow(currentRow);
         row.height = 60;
 
@@ -1329,9 +1413,9 @@ export async function exportToExcel(
           right: { style: "thin", color: { argb: "000000" } },
         };
 
-        // Column B: Newfi Guidelines
+        // Column B: Newfi Guidelines (from baseline — fixes alignment)
         const cellB = row.getCell(2);
-        cellB.value = newfiText;
+        cellB.value = comp.newfiGuideline.guideline;
         cellB.alignment = { horizontal: "left", vertical: "top", wrapText: true };
         cellB.font = { size: 9 };
         cellB.border = {
@@ -1341,11 +1425,15 @@ export async function exportToExcel(
           right: { style: "thin", color: { argb: "000000" } },
         };
 
-        // Column C: Seller Guide
+        // Column C: Seller Guide (or "Not addressed" for Gap rows)
         const cellC = row.getCell(3);
-        cellC.value = comp.sellerGuideline.guideline;
+        const sellerText = comp.sellerGuideline?.guideline || "Not addressed";
+        cellC.value = sellerText;
         cellC.alignment = { horizontal: "left", vertical: "top", wrapText: true };
         cellC.font = { size: 9 };
+        if (comp.verdict === "Gap") {
+          cellC.font = { size: 9, italic: true, color: { argb: "808080" } };
+        }
         cellC.border = {
           top: { style: "thin", color: { argb: "000000" } },
           left: { style: "thin", color: { argb: "000000" } },
@@ -1353,26 +1441,28 @@ export async function exportToExcel(
           right: { style: "thin", color: { argb: "000000" } },
         };
 
-        // Column D: Findings
+        // Column D: Findings (Match/Partial/Conflict/Gap)
         const cellD = row.getCell(4);
         let findings = "";
         let bgColor = { argb: "FFFFFF" };
 
-        if (comp.verdict === "GO") {
-          // Only mark as SAME if similarity is high enough
-          const similarity = calculateSimilarity(comp.sellerGuideline.guideline, newfiText);
-          if (similarity > 0.70) {
-            findings = "SAME";
-          } else {
-            findings = "Seller is MORE Restrictive";
-          }
-          bgColor = yellowBg;
-        } else if (comp.verdict === "NO_GO") {
-          findings = "LESS Restrictive - MUST MEET Newfi";
-          bgColor = redBg;
-        } else {
-          findings = "REVIEW";
-          bgColor = { argb: "E0E0E0" };
+        switch (comp.verdict) {
+          case "Match":
+            findings = "Match";
+            bgColor = greenBg;
+            break;
+          case "Partial":
+            findings = "Partial";
+            bgColor = yellowBg;
+            break;
+          case "Conflict":
+            findings = "Conflict";
+            bgColor = redBg;
+            break;
+          case "Gap":
+            findings = "Gap";
+            bgColor = grayBg;
+            break;
         }
 
         cellD.value = findings;
@@ -1388,14 +1478,26 @@ export async function exportToExcel(
 
         // Column E: Page Reference
         const cellE = row.getCell(5);
-        const pageRef = comp.sellerGuideline.page_reference ||
-                       (comp.sellerGuideline.pages && comp.sellerGuideline.pages.length > 0
+        const pageRef = comp.sellerGuideline?.page_reference ||
+                       (comp.sellerGuideline?.pages && comp.sellerGuideline.pages.length > 0
                          ? formatPageNumbers(comp.sellerGuideline.pages)
                          : "N/A");
         cellE.value = pageRef;
         cellE.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
         cellE.font = { size: 9 };
         cellE.border = {
+          top: { style: "thin", color: { argb: "000000" } },
+          left: { style: "thin", color: { argb: "000000" } },
+          bottom: { style: "thin", color: { argb: "000000" } },
+          right: { style: "thin", color: { argb: "000000" } },
+        };
+
+        // Column F: Verbatim Quote (v2.3 requirement — required on every row)
+        const cellF = row.getCell(6);
+        cellF.value = comp.verbatimQuote;
+        cellF.alignment = { horizontal: "left", vertical: "top", wrapText: true };
+        cellF.font = { size: 9, italic: true };
+        cellF.border = {
           top: { style: "thin", color: { argb: "000000" } },
           left: { style: "thin", color: { argb: "000000" } },
           bottom: { style: "thin", color: { argb: "000000" } },
@@ -1412,8 +1514,8 @@ export async function exportToExcel(
     });
   }
 
-  // Freeze panes at row 7
-  sheet.views = [{ state: "frozen", ySplit: 7 }];
+  // Freeze panes at row 8 (header row)
+  sheet.views = [{ state: "frozen", ySplit: 8 }];
 
   // Generate and download
   const buffer = await workbook.xlsx.writeBuffer();

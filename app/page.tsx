@@ -14,6 +14,7 @@ export default function Home() {
   const {
     documentA, setDocumentA,
     documentB, setDocumentB,
+    overlayDocument, setOverlayDocument,
     isExtracting, extractionProgress, extractionTarget,
     comparisonResult, isComparing, comparisonProgress,
     activePage, setActivePage,
@@ -26,20 +27,28 @@ export default function Home() {
   const [showSettings, setShowSettings] = useState(false);
 
   const handleFileSelectA = useCallback((file: File) => {
-    setDocumentA({ file, name: file.name, size: file.size, uploaded: true, extracting: false, extracted: false, guidelines: [], pageCount: 0 });
+    setDocumentA({ file, name: file.name, size: file.size, uploaded: true, extracting: false, extracted: false, guidelines: [], pageCount: 0, error: undefined });
   }, [setDocumentA]);
 
   const handleFileSelectB = useCallback((file: File) => {
-    setDocumentB({ file, name: file.name, size: file.size, uploaded: true, extracting: false, extracted: false, guidelines: [], pageCount: 0 });
+    setDocumentB({ file, name: file.name, size: file.size, uploaded: true, extracting: false, extracted: false, guidelines: [], pageCount: 0, error: undefined });
   }, [setDocumentB]);
 
+  const handleFileSelectOverlay = useCallback((file: File) => {
+    setOverlayDocument({ file, name: file.name, size: file.size, uploaded: true, extracting: false, extracted: false, guidelines: [], pageCount: 0, error: undefined });
+  }, [setOverlayDocument]);
+
   const handleClearA = useCallback(() => {
-    setDocumentA({ file: null, name: "", size: 0, uploaded: false, extracting: false, extracted: false, guidelines: [], pageCount: 0 });
+    setDocumentA({ file: null, name: "", size: 0, uploaded: false, extracting: false, extracted: false, guidelines: [], pageCount: 0, error: undefined });
   }, [setDocumentA]);
 
   const handleClearB = useCallback(() => {
-    setDocumentB({ file: null, name: "", size: 0, uploaded: false, extracting: false, extracted: false, guidelines: [], pageCount: 0 });
+    setDocumentB({ file: null, name: "", size: 0, uploaded: false, extracting: false, extracted: false, guidelines: [], pageCount: 0, error: undefined });
   }, [setDocumentB]);
+
+  const handleClearOverlay = useCallback(() => {
+    setOverlayDocument({ file: null, name: "", size: 0, uploaded: false, extracting: false, extracted: false, guidelines: [], pageCount: 0, error: undefined });
+  }, [setOverlayDocument]);
 
   const canCompare = documentA.extracted && documentB.extracted;
   const totalGuidelines = documentA.guidelines.length + documentB.guidelines.length;
@@ -187,7 +196,7 @@ export default function Home() {
 
         {/* Upload Page */}
         {activePage === "upload" && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             <div className="space-y-5">
               <DocumentUploadCard
                 document={documentA}
@@ -219,6 +228,22 @@ export default function Home() {
                 <GuidelineList guidelines={documentB.guidelines} documentType="B" onExportCSV={() => exportGuidelinesCSV("B")} onExportExcel={() => exportGuidelinesExcel("B")} />
               )}
               {isExtracting && extractionTarget === "B" && !documentB.extracted && <GuidelineSkeleton count={5} />}
+            </div>
+            <div className="space-y-5">
+              <DocumentUploadCard
+                document={overlayDocument}
+                documentType="C"
+                onFileSelect={handleFileSelectOverlay}
+                onExtract={() => extractDocument("C")}
+                onClear={handleClearOverlay}
+                isExtracting={isExtracting}
+                extractionProgress={extractionTarget === "C" ? extractionProgress : 0}
+                isTarget={extractionTarget === "C"}
+              />
+              {overlayDocument.extracted && overlayDocument.guidelines.length > 0 && (
+                <GuidelineList guidelines={overlayDocument.guidelines} documentType="C" onExportCSV={() => {}} onExportExcel={() => {}} />
+              )}
+              {isExtracting && extractionTarget === "C" && !overlayDocument.extracted && <GuidelineSkeleton count={5} />}
             </div>
           </div>
         )}
@@ -359,7 +384,7 @@ function ComparisonView({ canCompare, comparisonResult, isComparing, comparisonP
   isComparing: boolean;
   comparisonProgress: number;
   onRunComparison: () => void;
-  onExportCSV: (type: "full" | "critical") => void;
+  onExportCSV: (type: "full" | "conflicts") => void;
   onExportExcel: () => void;
 }) {
   if (!canCompare) {
@@ -391,28 +416,32 @@ function ComparisonView({ canCompare, comparisonResult, isComparing, comparisonP
                 </div>
                 <h2 className="font-display text-[19px] font-semibold text-white">Compliance Summary</h2>
               </div>
-              <div className="grid grid-cols-3 gap-4 mb-5">
+              <div className="grid grid-cols-4 gap-4 mb-5">
                 <div className="liquid-glass p-4 rounded-[14px] border border-[rgba(48,209,88,0.2)] group hover:border-[rgba(48,209,88,0.4)] transition-colors">
-                  <p className="text-[28px] font-display font-bold text-[#30D158] font-mono group-hover:scale-110 transition-transform origin-left">{comparisonResult.goCount}</p>
-                  <p className="text-[11px] text-[#30D158] opacity-80 font-display uppercase tracking-wider">Compliant</p>
-                </div>
-                <div className="liquid-glass p-4 rounded-[14px] border border-[rgba(255,59,48,0.2)] group hover:border-[rgba(255,59,48,0.4)] transition-colors">
-                  <p className="text-[28px] font-display font-bold text-[#FF453A] font-mono group-hover:scale-110 transition-transform origin-left">{comparisonResult.noGoCount}</p>
-                  <p className="text-[11px] text-[#FF453A] opacity-80 font-display uppercase tracking-wider">Non-Compliant</p>
+                  <p className="text-[28px] font-display font-bold text-[#30D158] font-mono group-hover:scale-110 transition-transform origin-left">{comparisonResult.matchCount}</p>
+                  <p className="text-[11px] text-[#30D158] opacity-80 font-display uppercase tracking-wider">Match</p>
                 </div>
                 <div className="liquid-glass p-4 rounded-[14px] border border-[rgba(255,159,10,0.2)] group hover:border-[rgba(255,159,10,0.4)] transition-colors">
-                  <p className="text-[28px] font-display font-bold text-[#FF9F0A] font-mono group-hover:scale-110 transition-transform origin-left">{comparisonResult.reviewCount}</p>
-                  <p className="text-[11px] text-[#FF9F0A] opacity-80 font-display uppercase tracking-wider">Review</p>
+                  <p className="text-[28px] font-display font-bold text-[#FF9F0A] font-mono group-hover:scale-110 transition-transform origin-left">{comparisonResult.partialCount}</p>
+                  <p className="text-[11px] text-[#FF9F0A] opacity-80 font-display uppercase tracking-wider">Partial</p>
+                </div>
+                <div className="liquid-glass p-4 rounded-[14px] border border-[rgba(255,59,48,0.2)] group hover:border-[rgba(255,59,48,0.4)] transition-colors">
+                  <p className="text-[28px] font-display font-bold text-[#FF453A] font-mono group-hover:scale-110 transition-transform origin-left">{comparisonResult.conflictCount}</p>
+                  <p className="text-[11px] text-[#FF453A] opacity-80 font-display uppercase tracking-wider">Conflict</p>
+                </div>
+                <div className="liquid-glass p-4 rounded-[14px] border border-[rgba(142,142,147,0.2)] group hover:border-[rgba(142,142,147,0.4)] transition-colors">
+                  <p className="text-[28px] font-display font-bold text-[#8E8E93] font-mono group-hover:scale-110 transition-transform origin-left">{comparisonResult.gapCount}</p>
+                  <p className="text-[11px] text-[#8E8E93] opacity-80 font-display uppercase tracking-wider">Gap</p>
                 </div>
               </div>
               <div className={`p-4 rounded-[14px] ${
-                comparisonResult.overallVerdict === "FULLY_COMPLIANT" ? "bg-[rgba(48,209,88,0.12)] border border-[rgba(48,209,88,0.25)]"
+                comparisonResult.overallVerdict === "COMPLIANT" ? "bg-[rgba(48,209,88,0.12)] border border-[rgba(48,209,88,0.25)]"
                 : comparisonResult.overallVerdict === "NON_COMPLIANT" ? "bg-[rgba(255,59,48,0.12)] border border-[rgba(255,59,48,0.25)]"
                 : "bg-[rgba(255,159,10,0.12)] border border-[rgba(255,159,10,0.25)]"
               }`}>
                 <div className="flex items-center gap-3">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                    comparisonResult.overallVerdict === "FULLY_COMPLIANT" ? "bg-[#30D158]"
+                    comparisonResult.overallVerdict === "COMPLIANT" ? "bg-[#30D158]"
                     : comparisonResult.overallVerdict === "NON_COMPLIANT" ? "bg-[#FF453A]"
                     : "bg-[#FF9F0A]"
                   }`}>
@@ -421,13 +450,13 @@ function ComparisonView({ canCompare, comparisonResult, isComparing, comparisonP
                     </svg>
                   </div>
                   <p className={`font-display font-semibold text-[15px] ${
-                    comparisonResult.overallVerdict === "FULLY_COMPLIANT" ? "text-[#30D158]"
+                    comparisonResult.overallVerdict === "COMPLIANT" ? "text-[#30D158]"
                     : comparisonResult.overallVerdict === "NON_COMPLIANT" ? "text-[#FF453A]"
                     : "text-[#FF9F0A]"
                   }`}>
-                    {comparisonResult.overallVerdict === "FULLY_COMPLIANT" ? "Fully Compliant"
+                    {comparisonResult.overallVerdict === "COMPLIANT" ? "Compliant"
                     : comparisonResult.overallVerdict === "NON_COMPLIANT" ? "Non-Compliant"
-                    : "Review Required"}
+                    : "Partially Compliant"}
                   </p>
                 </div>
               </div>
@@ -484,11 +513,11 @@ function ComparisonView({ canCompare, comparisonResult, isComparing, comparisonP
             </svg>
             Export Excel
           </button>
-          <button onClick={() => onExportCSV("critical")} className="flex items-center gap-2 px-5 py-3 rounded-[12px] liquid-glass-card text-[#FF453A] text-[14px] font-medium hover:bg-[rgba(255,69,58,0.1)] transition-colors">
+          <button onClick={() => onExportCSV("conflicts")} className="flex items-center gap-2 px-5 py-3 rounded-[12px] liquid-glass-card text-[#FF453A] text-[14px] font-medium hover:bg-[rgba(255,69,58,0.1)] transition-colors">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
             </svg>
-            Critical Only
+            Conflicts Only
           </button>
         </div>
       )}
@@ -513,7 +542,7 @@ function ScoreRing({ score, verdict }: { score: number; verdict: string }) {
 
   const circumference = 2 * Math.PI * 42;
   const progress = (animatedScore / 100) * circumference;
-  const color = verdict === "FULLY_COMPLIANT" ? "#30D158" : verdict === "NON_COMPLIANT" ? "#FF453A" : "#FF9F0A";
+  const color = verdict === "COMPLIANT" ? "#30D158" : verdict === "NON_COMPLIANT" ? "#FF453A" : "#FF9F0A";
 
   return (
     <div className="relative w-32 h-32">
@@ -530,22 +559,23 @@ function ScoreRing({ score, verdict }: { score: number; verdict: string }) {
 }
 
 function ComparisonResults({ comparisons }: { comparisons: any[] }) {
-  const [filter, setFilter] = useState<"all" | "GO" | "NO_GO" | "REVIEW">("all");
+  const [filter, setFilter] = useState<"all" | "Match" | "Partial" | "Conflict" | "Gap">("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const filtered = filter === "all" ? comparisons : comparisons.filter((c) => c.verdict === filter);
 
   const config: Record<string, { bg: string; text: string; icon: string; label: string }> = {
-    GO: { bg: "bg-[rgba(48,209,88,0.12)]", text: "text-[#30D158]", icon: "✓", label: "Compliant" },
-    NO_GO: { bg: "bg-[rgba(255,59,48,0.12)]", text: "text-[#FF453A]", icon: "✕", label: "Non-Compliant" },
-    REVIEW: { bg: "bg-[rgba(255,159,10,0.12)]", text: "text-[#FF9F0A]", icon: "!", label: "Review" },
+    Match: { bg: "bg-[rgba(48,209,88,0.12)]", text: "text-[#30D158]", icon: "✓", label: "Match" },
+    Partial: { bg: "bg-[rgba(255,159,10,0.12)]", text: "text-[#FF9F0A]", icon: "~", label: "Partial" },
+    Conflict: { bg: "bg-[rgba(255,59,48,0.12)]", text: "text-[#FF453A]", icon: "✕", label: "Conflict" },
+    Gap: { bg: "bg-[rgba(142,142,147,0.12)]", text: "text-[#8E8E93]", icon: "—", label: "Gap" },
   };
 
   return (
     <div className="liquid-glass-strong overflow-hidden">
       <div className="p-5 border-b border-[rgba(255,255,255,0.06)] flex flex-wrap gap-2">
-        {(["all", "GO", "NO_GO", "REVIEW"] as const).map((f) => {
+        {(["all", "Match", "Partial", "Conflict", "Gap"] as const).map((f) => {
           const count = f === "all" ? comparisons.length : comparisons.filter((c) => c.verdict === f).length;
-          const activeColor = f === "GO" ? "#30D158" : f === "NO_GO" ? "#FF453A" : f === "REVIEW" ? "#FF9F0A" : "#0A84FF";
+          const activeColor = f === "Match" ? "#30D158" : f === "Conflict" ? "#FF453A" : f === "Partial" ? "#FF9F0A" : f === "Gap" ? "#8E8E93" : "#0A84FF";
           return (
             <button key={f} onClick={() => setFilter(f)} className={`px-4 py-2 rounded-[10px] text-[13px] font-medium transition-all ${
               filter === f ? "text-white shadow-lg" : "text-slate-500 dark:text-[rgba(255,255,255,0.5)] liquid-glass-card hover:text-slate-900 dark:hover:text-white"

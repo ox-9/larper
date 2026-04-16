@@ -5,7 +5,7 @@ import type { ExtractedGuideline } from "@/lib/types";
 
 type GuidelineListProps = {
   guidelines: ExtractedGuideline[];
-  documentType: "A" | "B";
+  documentType: "A" | "B" | "C";
   onExportCSV: () => void;
   onExportExcel: () => void;
 };
@@ -86,8 +86,8 @@ export function GuidelineList({ guidelines, documentType, onExportCSV, onExportE
 
   if (guidelines.length === 0) return null;
 
-  const accentColor = documentType === "A" ? "#0A84FF" : "#30D158";
-  const accentSecondary = documentType === "A" ? "#5E5CE6" : "#34C759";
+  const accentColor = documentType === "A" ? "#0A84FF" : documentType === "B" ? "#30D158" : "#FF9F0A";
+  const accentSecondary = documentType === "A" ? "#5E5CE6" : documentType === "B" ? "#34C759" : "#FF6B35";
 
   return (
     <div className="glass-strong animate-fade-in overflow-hidden">

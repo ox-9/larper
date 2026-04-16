@@ -29,9 +29,11 @@ type AppContextType = {
   setDocumentA: (doc: DocumentInfo) => void;
   documentB: DocumentInfo;
   setDocumentB: (doc: DocumentInfo) => void;
+  overlayDocument: DocumentInfo;
+  setOverlayDocument: (doc: DocumentInfo) => void;
   isExtracting: boolean;
   extractionProgress: number;
-  extractionTarget: "A" | "B" | null;
+  extractionTarget: "A" | "B" | "C" | null;
   comparisonResult: ComparisonResult | null;
   isComparing: boolean;
   comparisonProgress: number;
@@ -39,12 +41,12 @@ type AppContextType = {
   setNewfiBaselineText: (text: string) => void;
   activePage: "upload" | "compare" | "chat";
   setActivePage: (page: "upload" | "compare" | "chat") => void;
-  extractDocument: (doc: "A" | "B") => Promise<ExtractionResult | null>;
+  extractDocument: (doc: "A" | "B" | "C") => Promise<ExtractionResult | null>;
   extractBothDocuments: () => Promise<void>;
   runComparison: () => Promise<void>;
   clearDocuments: () => void;
   exportGuidelinesCSV: (doc: "A" | "B") => void;
-  exportComparisonCSV: (type: "full" | "critical") => void;
+  exportComparisonCSV: (type: "full" | "conflicts") => void;
   exportGuidelinesExcel: (doc: "A" | "B") => Promise<void>;
   exportComparisonExcel: () => Promise<void>;
 };
@@ -68,9 +70,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ...initialDocumentInfo,
     name: "Newfi Baseline",
   });
+  const [overlayDocument, setOverlayDocument] = useState<DocumentInfo>({
+    ...initialDocumentInfo,
+    name: "Newfi Overlays",
+  });
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractionProgress, setExtractionProgress] = useState(0);
-  const [extractionTarget, setExtractionTarget] = useState<"A" | "B" | null>(null);
+  const [extractionTarget, setExtractionTarget] = useState<"A" | "B" | "C" | null>(null);
   const [comparisonResult, setComparisonResult] = useState<ComparisonResult | null>(null);
   const [isComparing, setIsComparing] = useState(false);
   const [comparisonProgress, setComparisonProgress] = useState(0);
@@ -123,9 +129,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const extractDocument = useCallback(
-    async (doc: "A" | "B"): Promise<ExtractionResult | null> => {
-      const document = doc === "A" ? documentA : documentB;
-      const setDocument = doc === "A" ? setDocumentA : setDocumentB;
+    async (doc: "A" | "B" | "C"): Promise<ExtractionResult | null> => {
+      const document = doc === "A" ? documentA : doc === "B" ? documentB : overlayDocument;
+      const setDocument = doc === "A" ? setDocumentA : doc === "B" ? setDocumentB : setOverlayDocument;
 
       if (!document.file) return null;
 
@@ -134,13 +140,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setExtractionProgress(0);
       targetProgressRef.current = 0;
 
-      setDocument((prev) => ({ ...prev, extracting: true }));
+      setDocument((prev) => ({ ...prev, extracting: true, error: undefined }));
 
       // Start smooth progress simulation
       startProgressSimulation(setExtractionProgress);
 
       try {
         let result: ExtractionResult | null = null;
+        let clientError: string | null = null;
+        let geminiError: string | null = null;
 
         // Priority 1: Fast client-side PDF extraction (no AI, no server)
         try {
@@ -154,25 +162,54 @@ export function AppProvider({ children }: { children: ReactNode }) {
               fileSize: document.file.size,
               extractedAt: new Date().toISOString(),
             };
+          } else if (!clientResult.success) {
+            clientError = clientResult.error || "Client extraction returned no guidelines";
+            console.warn("Client extraction failed:", clientError);
           }
         } catch (err) {
-          console.warn("Client PDF extraction failed:", err);
+          clientError = err instanceof Error ? err.message : "Unknown client extraction error";
+          console.warn("Client PDF extraction failed:", clientError);
         }
 
-        // Priority 2: Gemini AI extraction (smarter, but may hit rate limits)
+        // Priority 2: Gemini AI extraction (smarter, but requires API key)
+        let geminiResult: ExtractionResult | null = null;
         if (!result || !result.success) {
           const apiKey = getGeminiApiKey();
           if (apiKey) {
             try {
-              result = await extractWithGemini(document.file, doc);
+              geminiResult = await extractWithGemini(document.file, doc);
+              if (geminiResult.success) {
+                result = geminiResult;
+              } else {
+                geminiError = geminiResult.error || "Gemini extraction failed";
+              }
             } catch (err) {
-              console.warn("Gemini extraction failed:", err);
+              geminiError = err instanceof Error ? err.message : "Unknown Gemini error";
+              console.warn("Gemini extraction failed:", geminiError);
             }
+          } else {
+            geminiError = "Gemini API key not configured. Add it in Settings or set NEXT_PUBLIC_GEMINI_API_KEY.";
           }
         }
 
-        // If all methods failed, produce a clear error
-        if (!result) {
+        // If all methods failed, produce a clear error message
+        if (!result || !result.success) {
+          let errorMessage = "PDF extraction failed.";
+          if (clientError?.includes("Worker")) {
+            errorMessage = "PDF processing library failed to load. Please check your internet connection and try again.";
+          } else if (clientError?.includes("network")) {
+            errorMessage = "Network issue detected. The PDF worker could not be loaded from the CDN.";
+          } else if (clientError) {
+            errorMessage = `${clientError}`;
+          } else if (geminiError?.includes("API key")) {
+            errorMessage = "PDF extraction requires a Gemini API key. Add one in Settings, or ensure you have a good internet connection for client-side extraction.";
+          } else if (geminiError) {
+            errorMessage = `AI extraction failed: ${geminiError}`;
+          } else if (result?.error) {
+            errorMessage = result.error;
+          } else {
+            errorMessage = "Could not extract guidelines from this PDF. It may be a scanned image-based PDF or encrypted.";
+          }
           result = {
             success: false,
             guidelines: [],
@@ -180,7 +217,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             pageCount: 0,
             fileSize: document.file.size,
             extractedAt: new Date().toISOString(),
-            error: "PDF extraction failed. The file may be encrypted or contain only images.",
+            error: errorMessage,
           };
         }
 
@@ -198,15 +235,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ...prev,
             extracted: true,
             extracting: false,
+            error: undefined,
             guidelines: result.guidelines,
             pageCount: result.pageCount,
           }));
         } else {
+          const errorMsg = result.error || "Extraction failed";
           setDocument((prev) => ({
             ...prev,
+            extracted: false,
             extracting: false,
+            error: errorMsg,
+            guidelines: [],
           }));
-          console.error("Extraction failed:", result.error);
+          console.warn("Extraction completed with error:", errorMsg);
         }
 
         // Animate to 100%
@@ -230,7 +272,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }, 300);
       }
     },
-    [documentA, documentB, startProgressSimulation, stopProgressSimulation, animateProgress]
+    [documentA, documentB, overlayDocument, startProgressSimulation, stopProgressSimulation, animateProgress]
   );
 
   const extractBothDocuments = useCallback(async () => {
@@ -250,12 +292,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
     targetProgressRef.current = 0;
 
     try {
+      // Apply overlay adjustments to baseline guidelines if overlay is provided
+      let baselineGuidelines = documentB.guidelines;
+      if (overlayDocument.extracted && overlayDocument.guidelines.length > 0) {
+        // Merge overlay guidelines into baseline: adjust matching guidelines
+        const overlayCategories = new Set(overlayDocument.guidelines.map(g => g.category.toLowerCase()));
+        // Replace baseline guidelines in categories covered by overlays
+        baselineGuidelines = baselineGuidelines.map(bg => {
+          if (overlayCategories.has(bg.category.toLowerCase())) {
+            // Find the best matching overlay guideline
+            const overlayMatch = overlayDocument.guidelines.find(og =>
+              og.category.toLowerCase() === bg.category.toLowerCase()
+            );
+            if (overlayMatch) {
+              // Overlay takes precedence
+              return {
+                ...bg,
+                guideline: `${bg.guideline}\n[Overlay Adjustment]: ${overlayMatch.guideline}`,
+              };
+            }
+          }
+          return bg;
+        });
+      }
+
       const result = await batchCompareGuidelines(
         documentA.guidelines,
-        documentB.guidelines,
+        baselineGuidelines,
         (current, total) => {
           const progress = Math.round((current / total) * 100);
-          // Smooth progress updates during comparison
           targetProgressRef.current = progress;
           setComparisonProgress(progress);
         }
@@ -268,11 +333,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setIsComparing(false);
       targetProgressRef.current = 0;
     }
-  }, [documentA, documentB]);
+  }, [documentA, documentB, overlayDocument]);
 
   const clearDocuments = useCallback(() => {
     setDocumentA(initialDocumentInfo);
     setDocumentB({ ...initialDocumentInfo, name: "Newfi Baseline" });
+    setOverlayDocument({ ...initialDocumentInfo, name: "Newfi Overlays" });
     setComparisonResult(null);
     setNewfiBaselineText("");
   }, []);
@@ -309,29 +375,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     URL.revokeObjectURL(url);
   }, [documentA, documentB]);
 
-  const exportComparisonCSV = useCallback((type: "full" | "critical") => {
+  const exportComparisonCSV = useCallback((type: "full" | "conflicts") => {
     if (!comparisonResult) return;
 
     const comparisons =
-      type === "critical"
-        ? comparisonResult.comparisons.filter((c) => c.verdict === "NO_GO")
+      type === "conflicts"
+        ? comparisonResult.comparisons.filter((c) => c.verdict === "Conflict")
         : comparisonResult.comparisons;
 
-    const headers = ["#", "Category", "Guideline", "Source", "Verdict", "Confidence%", "Reason", "Conflicting Rule", "Page Reference"];
+    const headers = ["#", "Category", "Newfi Guideline", "Seller Guideline", "Findings", "Confidence%", "Reason", "Verbatim Quote", "Page(s)"];
     const rows = comparisons.map((c, i) => {
-      const pageRef = c.sellerGuideline.page_reference ||
-                     (c.sellerGuideline.pages && c.sellerGuideline.pages.length > 0
+      const pageRef = c.sellerGuideline?.page_reference ||
+                     (c.sellerGuideline?.pages && c.sellerGuideline.pages.length > 0
                        ? c.sellerGuideline.pages.sort((a, b) => a - b).join(", ")
                        : "N/A");
       return [
         i + 1,
-        c.sellerGuideline.category,
-        `"${c.sellerGuideline.guideline.replace(/"/g, '""')}"`,
-        c.sellerGuideline.sourceDocument || "A",
+        c.newfiGuideline.category,
+        `"${c.newfiGuideline.guideline.replace(/"/g, '""')}"`,
+        c.sellerGuideline ? `"${c.sellerGuideline.guideline.replace(/"/g, '""')}"` : "Not addressed",
         c.verdict,
         c.confidence,
         `"${c.reason.replace(/"/g, '""')}"`,
-        c.conflictingNewfiRule ? `"${c.conflictingNewfiRule.replace(/"/g, '""')}"` : "N/A",
+        `"${c.verbatimQuote.replace(/"/g, '""')}"`,
         pageRef,
       ];
     });
@@ -520,6 +586,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setDocumentA,
         documentB,
         setDocumentB,
+        overlayDocument,
+        setOverlayDocument,
         isExtracting,
         extractionProgress,
         extractionTarget,

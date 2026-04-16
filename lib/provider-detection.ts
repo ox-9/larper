@@ -47,6 +47,19 @@ export async function detectProviders(force = false): Promise<ProviderStatus> {
 }
 
 async function probeOllama(): Promise<[boolean, string | null]> {
+  // Skip Ollama detection on GitHub Pages / static deployments / HTTPS sites
+  // Ollama only runs on localhost and can't be accessed from external sites due to CORS
+  if (typeof window !== "undefined") {
+    const isGitHubPages = window.location.hostname.includes("github.io");
+    const isHTTPS = window.location.protocol === "https:";
+    const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+
+    // Don't try Ollama if we're not on localhost (it won't work due to CORS anyway)
+    if (!isLocalhost || isGitHubPages) {
+      return [false, null];
+    }
+  }
+
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), OLLAMA_PROBE_TIMEOUT);

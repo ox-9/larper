@@ -7,11 +7,19 @@ import type {
   ComparisonVerdict
 } from "./types";
 
-// Initialize Gemini client
-function getGeminiClient() {
-  const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+// Initialize Gemini client - LAZY: only throws when actually used
+function getGeminiClient(): GoogleGenerativeAI {
+  // Check for runtime key from localStorage first (set via provider-detection)
+  let apiKey: string | null = null;
+  if (typeof window !== "undefined") {
+    apiKey = localStorage.getItem("gemini_api_key");
+  }
+  // Fall back to build-time env var
   if (!apiKey) {
-    throw new Error("NEXT_PUBLIC_GEMINI_API_KEY is not set in environment variables");
+    apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || null;
+  }
+  if (!apiKey) {
+    throw new Error("Gemini API key not configured. Add it in Settings or set NEXT_PUBLIC_GEMINI_API_KEY.");
   }
   return new GoogleGenerativeAI(apiKey);
 }
@@ -65,7 +73,7 @@ export async function fileToBase64(file: File): Promise<string> {
 // Extract guidelines from PDF using Gemini
 export async function extractGuidelinesFromPDF(
   file: File,
-  documentType: "A" | "B"
+  documentType: "A" | "B" | "C"
 ): Promise<ExtractionResult> {
   try {
     const genAI = getGeminiClient();
@@ -139,7 +147,8 @@ IMPORTANT: Return ONLY valid JSON, no markdown code blocks, no explanation. The 
       extractedAt: new Date().toISOString(),
     };
   } catch (error) {
-    console.error("PDF extraction failed:", error);
+    // Use warn instead of error since this may be used as a fallback extraction method
+    console.warn("Gemini PDF extraction unavailable:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 
     // Check for quota errors
@@ -173,13 +182,14 @@ async function compareGuidelineWithClient(
   sellerGuideline: ExtractedGuideline,
   newfiGuidelines: ExtractedGuideline[]
 ): Promise<GuidelineComparison> {
+  // Find best matching Newfi guideline for the result (outside try so catch can access it)
+  const relevantNewfiGuidelines = newfiGuidelines.filter(
+    (g) => g.category === sellerGuideline.category || g.category === "All"
+  );
+  const bestNewfiMatch = relevantNewfiGuidelines.length > 0 ? relevantNewfiGuidelines[0] : newfiGuidelines[0];
+
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-
-    // Find relevant Newfi guidelines for the same category
-    const relevantNewfiGuidelines = newfiGuidelines.filter(
-      (g) => g.category === sellerGuideline.category || g.category === "All"
-    );
 
     const newfiGuidelinesText = relevantNewfiGuidelines.length > 0
       ? relevantNewfiGuidelines.map((g) => `- ${g.guideline}`).join("\n")
@@ -195,10 +205,11 @@ ${newfiGuidelinesText}
 
 Respond ONLY with valid JSON:
 {
-  "verdict": "GO" | "NO_GO" | "REVIEW",
+  "verdict": "Match" | "Partial" | "Conflict" | "Gap",
   "confidence": number (0-100),
   "reason": string (one sentence max),
-  "conflicting_newfi_rule": string | null
+  "conflicting_newfi_rule": string | null,
+  "verbatim_quote": string
 }`;
 
     const result = await retryWithBackoff(async () => {
@@ -213,6 +224,7 @@ Respond ONLY with valid JSON:
       confidence?: number;
       reason?: string;
       conflicting_newfi_rule?: string | null;
+      verbatim_quote?: string;
     } = {};
 
     try {
@@ -224,34 +236,40 @@ Respond ONLY with valid JSON:
       parsed = JSON.parse(jsonStr);
     } catch {
       parsed = {
-        verdict: "REVIEW",
+        verdict: "Gap",
         confidence: 50,
         reason: "Analysis failed — manual review required",
         conflicting_newfi_rule: null,
       };
     }
 
-    const validVerdicts: ComparisonVerdict[] = ["GO", "NO_GO", "REVIEW"];
+    const validVerdicts: ComparisonVerdict[] = ["Match", "Partial", "Conflict", "Gap"];
     const verdict = validVerdicts.includes(parsed.verdict as ComparisonVerdict)
       ? (parsed.verdict as ComparisonVerdict)
-      : "REVIEW";
+      : "Gap";
 
     return {
       id: `comparison-${sellerGuideline.id}`,
       sellerGuideline,
+      newfiGuideline: bestNewfiMatch,
       verdict,
       confidence: Math.min(100, Math.max(0, parsed.confidence || 50)),
       reason: parsed.reason || "Analysis completed",
       conflictingNewfiRule: parsed.conflicting_newfi_rule || null,
+      verbatimQuote: parsed.verbatim_quote || sellerGuideline.guideline.slice(0, 200),
+      overlayApplied: false,
     };
   } catch (error) {
     return {
       id: `comparison-${sellerGuideline.id}`,
       sellerGuideline,
-      verdict: "REVIEW",
+      newfiGuideline: bestNewfiMatch,
+      verdict: "Gap" as ComparisonVerdict,
       confidence: 0,
       reason: "Analysis failed — manual review required",
       conflictingNewfiRule: null,
+      verbatimQuote: sellerGuideline.guideline.slice(0, 200),
+      overlayApplied: false,
     };
   }
 }
@@ -286,27 +304,29 @@ export async function batchCompareGuidelines(
   }
 
   // Calculate statistics
-  const goCount = comparisons.filter((c) => c.verdict === "GO").length;
-  const noGoCount = comparisons.filter((c) => c.verdict === "NO_GO").length;
-  const reviewCount = comparisons.filter((c) => c.verdict === "REVIEW").length;
+  const matchCount = comparisons.filter((c) => c.verdict === "Match").length;
+  const partialCount = comparisons.filter((c) => c.verdict === "Partial").length;
+  const conflictCount = comparisons.filter((c) => c.verdict === "Conflict").length;
+  const gapCount = comparisons.filter((c) => c.verdict === "Gap").length;
   const complianceScore = totalGuidelines > 0
-    ? Math.round((goCount / totalGuidelines) * 100)
+    ? Math.round((matchCount / totalGuidelines) * 100)
     : 0;
 
-  let overallVerdict: "FULLY_COMPLIANT" | "NON_COMPLIANT" | "REVIEW_REQUIRED";
-  if (noGoCount > 0) {
+  let overallVerdict: "COMPLIANT" | "NON_COMPLIANT" | "PARTIALLY_COMPLIANT";
+  if (conflictCount > 0) {
     overallVerdict = "NON_COMPLIANT";
-  } else if (reviewCount > 0) {
-    overallVerdict = "REVIEW_REQUIRED";
+  } else if (matchCount === totalGuidelines) {
+    overallVerdict = "COMPLIANT";
   } else {
-    overallVerdict = "FULLY_COMPLIANT";
+    overallVerdict = "PARTIALLY_COMPLIANT";
   }
 
   return {
     totalGuidelines,
-    goCount,
-    noGoCount,
-    reviewCount,
+    matchCount,
+    partialCount,
+    conflictCount,
+    gapCount,
     complianceScore,
     overallVerdict,
     comparisons,
@@ -317,7 +337,7 @@ export async function batchCompareGuidelines(
 // Export to CSV
 export function exportToCSV(
   data: ExtractedGuideline[] | GuidelineComparison[],
-  type: "guidelines" | "comparison" | "critical-only"
+  type: "guidelines" | "comparison" | "conflicts-only"
 ): string {
   if (type === "guidelines") {
     const guidelines = data as ExtractedGuideline[];
@@ -333,20 +353,21 @@ export function exportToCSV(
     return [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
   }
 
-  if (type === "comparison" || type === "critical-only") {
+  if (type === "comparison" || type === "conflicts-only") {
     const comparisons = (data as GuidelineComparison[]).filter(
-      (c) => type === "comparison" || c.verdict === "NO_GO"
+      (c) => type === "comparison" || c.verdict === "Conflict"
     );
-    const headers = ["#", "Category", "Guideline", "Source", "Verdict", "Confidence%", "Reason", "Conflicting Rule"];
+    const headers = ["#", "Category", "Newfi Guideline", "Seller Guideline", "Findings", "Confidence%", "Reason", "Verbatim Quote", "Page(s)"];
     const rows = comparisons.map((c, i) => [
       i + 1,
-      c.sellerGuideline.category,
-      `"${c.sellerGuideline.guideline.replace(/"/g, '""')}"`,
-      c.sellerGuideline.sourceDocument || "A",
+      c.newfiGuideline.category,
+      `"${c.newfiGuideline.guideline.replace(/"/g, '""')}"`,
+      c.sellerGuideline ? `"${c.sellerGuideline.guideline.replace(/"/g, '""')}"` : "Not addressed",
       c.verdict,
       c.confidence,
       `"${c.reason.replace(/"/g, '""')}"`,
-      c.conflictingNewfiRule ? `"${c.conflictingNewfiRule.replace(/"/g, '""')}"` : "N/A",
+      `"${c.verbatimQuote.replace(/"/g, '""')}"`,
+      c.sellerGuideline?.page_reference || "N/A",
     ]);
     return [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
   }
