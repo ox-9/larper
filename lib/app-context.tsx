@@ -172,8 +172,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
 
         // Priority 2: Gemini AI extraction (smarter, but requires API key)
+        // Only try Gemini if client extraction completely failed (no result at all)
+        // If client extraction returned fallback data, we keep that
         let geminiResult: ExtractionResult | null = null;
-        if (!result || !result.success) {
+        if (!result) {
           const apiKey = getGeminiApiKey();
           if (apiKey) {
             try {

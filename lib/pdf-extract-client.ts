@@ -259,6 +259,21 @@ function parseGuidelinesFromText(
       .map((p) => p.trim())
       .filter((p) => p.length > 30 && p.length < 2000); // Not too short, not too long
 
+    // Strategy 3: If still not enough paragraphs, split by sentences
+    let contentBlocks: string[] = paragraphs;
+    if (paragraphs.length < 3) {
+      // Extract sentences as fallback
+      const sentences = fullText
+        .replace(/\n/g, ' ') // Replace newlines with spaces
+        .split(/(?<=[.!?])\s+/) // Split by sentence endings
+        .map((s) => s.trim())
+        .filter((s) => s.length > 40 && s.length < 500); // Sentence length
+
+      if (sentences.length > paragraphs.length) {
+        contentBlocks = sentences;
+      }
+    }
+
     let currentPage = 1;
     const pageLengths = pages.map((p) => p.length);
     const cumulativeLengths: number[] = [];
@@ -268,24 +283,24 @@ function parseGuidelinesFromText(
       cumulativeLengths.push(cumSum);
     }
 
-    for (const para of paragraphs) {
-      // Find which page this paragraph starts on
-      const paraStart = fullText.indexOf(para);
+    for (const block of contentBlocks) {
+      // Find which page this block starts on
+      const blockStart = fullText.indexOf(block);
       let pageNum = 1;
       for (let i = 0; i < cumulativeLengths.length; i++) {
-        if (paraStart >= cumulativeLengths[i] - pageLengths[i] * 0.5) {
+        if (blockStart >= cumulativeLengths[i] - pageLengths[i] * 0.5) {
           pageNum = i + 1;
         }
       }
 
       // Skip short lines that are just headers/footers
-      if (para.length < 40 && !/\d/.test(para)) continue;
+      if (block.length < 40 && !/\d/.test(block)) continue;
 
       guidelines.push({
         id: `guideline-${documentType}-${idCounter++}`,
-        category: detectCategory(para),
-        guideline: para.slice(0, 1000),
-        severity: detectSeverity(para),
+        category: detectCategory(block),
+        guideline: block.slice(0, 1000),
+        severity: detectSeverity(block),
         sourceDocument: documentType,
         pages: [pageNum],
         page_reference: String(pageNum),
@@ -337,18 +352,30 @@ export async function extractGuidelinesFromPDFClient(
         success: false,
         guidelines: [],
         pageCount,
-        error: "Could not extract text from this PDF. It may be a scanned document.",
+        error: "Could not extract text from this PDF. It may be a scanned document. Try uploading a text-based PDF.",
       };
     }
 
     const guidelines = parseGuidelinesFromText(text, pages, documentType);
 
+    // If no guidelines parsed, create a single guideline with the raw text
+    // This ensures something is always returned for the user to work with
     if (guidelines.length === 0) {
+      console.log("No structured guidelines found, returning raw text as fallback");
+      const fallbackGuidelines: ExtractedGuideline[] = [{
+        id: `guideline-${documentType}-raw`,
+        category: "Extracted Content",
+        guideline: text.slice(0, 5000), // First 5000 chars
+        severity: "standard",
+        sourceDocument: documentType,
+        pages: [1],
+        page_reference: "1",
+      }];
+
       return {
-        success: false,
-        guidelines: [],
+        success: true,
+        guidelines: fallbackGuidelines,
         pageCount,
-        error: "No guidelines could be parsed from the extracted text.",
       };
     }
 
