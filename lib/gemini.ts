@@ -76,6 +76,20 @@ export async function extractGuidelinesFromPDF(
   documentType: "A" | "B" | "C"
 ): Promise<ExtractionResult> {
   try {
+    // Check file size - Gemini has a 20MB limit for inline data
+    const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+    if (file.size > MAX_FILE_SIZE) {
+      return {
+        success: false,
+        guidelines: [],
+        fileName: file.name,
+        pageCount: 0,
+        fileSize: file.size,
+        extractedAt: new Date().toISOString(),
+        error: `PDF file is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Maximum size is 20MB for AI extraction.`,
+      };
+    }
+
     const genAI = getGeminiClient();
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
@@ -151,7 +165,7 @@ IMPORTANT: Return ONLY valid JSON, no markdown code blocks, no explanation. The 
     console.warn("Gemini PDF extraction unavailable:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 
-    // Check for quota errors
+    // Check for quota errors (429)
     if (errorMessage.includes('429') || errorMessage.includes('quota') || errorMessage.includes('rate limit')) {
       return {
         success: false,
@@ -161,6 +175,19 @@ IMPORTANT: Return ONLY valid JSON, no markdown code blocks, no explanation. The 
         fileSize: file.size,
         extractedAt: new Date().toISOString(),
         error: "API quota exceeded. Please wait a minute and try again, or use a different Gemini API key. Get a free key at: https://aistudio.google.com/apikey",
+      };
+    }
+
+    // Check for bad request (400) - usually malformed PDF or file too large
+    if (errorMessage.includes('400') || errorMessage.includes('Bad Request')) {
+      return {
+        success: false,
+        guidelines: [],
+        fileName: file.name,
+        pageCount: 0,
+        fileSize: file.size,
+        extractedAt: new Date().toISOString(),
+        error: "AI extraction failed: The PDF file may be corrupted, password-protected, or use an unsupported format. Try a different PDF file.",
       };
     }
 
