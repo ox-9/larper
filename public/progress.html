@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NewFI Guideline Processor — Project Progress</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+    :root {
+      --bg: #0a0a0c;
+      --glass-bg: rgba(30, 30, 32, 0.8);
+      --glass-border: rgba(255, 255, 255, 0.1);
+      --glass-shadow: rgba(0, 0, 0, 0.5);
+      --card-bg: rgba(44, 44, 46, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --text-primary: #ffffff;
+      --text-secondary: rgba(255, 255, 255, 0.7);
+      --text-tertiary: rgba(255, 255, 255, 0.5);
+      --accent-blue: #0A84FF;
+      --accent-green: #30D158;
+      --accent-orange: #FF9F0A;
+      --accent-red: #FF453A;
+      --accent-purple: #BF5AF2;
+      --accent-indigo: #5E5CE6;
+      --accent-teal: #64D2FF;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Animated background orbs */
+    .orb {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.3;
+      animation: float 20s ease-in-out infinite;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .orb-1 { width: 600px; height: 600px; background: var(--accent-blue); top: -200px; left: -100px; animation-delay: 0s; }
+    .orb-2 { width: 500px; height: 500px; background: var(--accent-purple); bottom: -150px; right: -100px; animation-delay: -7s; }
+    .orb-3 { width: 400px; height: 400px; background: var(--accent-indigo); top: 50%; left: 50%; animation-delay: -14s; }
+
+    @keyframes float {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      33% { transform: translate(30px, -30px) scale(1.05); }
+      66% { transform: translate(-20px, 20px) scale(0.95); }
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+    }
+
+    /* Header */
+    .header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+    .header h1 {
+      font-family: 'Sora', sans-serif;
+      font-size: 2.5rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #0A84FF, #BF5AF2, #FF9F0A);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 8px;
+    }
+    .header .subtitle {
+      font-size: 1.1rem;
+      color: var(--text-secondary);
+      font-weight: 400;
+    }
+    .header .version-badge {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 4px 14px;
+      background: rgba(10, 132, 255, 0.15);
+      border: 1px solid rgba(10, 132, 255, 0.3);
+      border-radius: 20px;
+      font-size: 0.8rem;
+      color: var(--accent-blue);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Score overview */
+    .score-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 40px;
+    }
+    .score-card {
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      padding: 24px;
+      text-align: center;
+      backdrop-filter: blur(20px);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .score-card:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+    .score-card .value {
+      font-family: 'Sora', sans-serif;
+      font-size: 2.2rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .score-card .label {
+      font-size: 0.85rem;
+      color: var(--text-tertiary);
+      margin-top: 6px;
+    }
+    .score-card .sub {
+      font-size: 0.75rem;
+      color: var(--text-tertiary);
+      margin-top: 4px;
+    }
+
+    /* Ring progress */
+    .ring-container {
+      position: relative;
+      width: 90px;
+      height: 90px;
+      margin: 0 auto 8px;
+    }
+    .ring-container svg { transform: rotate(-90deg); }
+    .ring-bg { fill: none; stroke: rgba(255,255,255,0.08); stroke-width: 6; }
+    .ring-fg { fill: none; stroke-width: 6; stroke-linecap: round; transition: stroke-dashoffset 1s ease; }
+
+    /* Section */
+    .section {
+      margin-bottom: 32px;
+    }
+    .section-title {
+      font-family: 'Sora', sans-serif;
+      font-size: 1.3rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .section-title .icon {
+      font-size: 1.4rem;
+    }
+
+    /* Glass cards */
+    .glass-panel {
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      backdrop-filter: blur(20px);
+      overflow: hidden;
+    }
+
+    /* Feature grid */
+    .feature-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      padding: 20px;
+    }
+    .feature-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 14px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      transition: background 0.2s;
+    }
+    .feature-item:hover { background: var(--card-hover); }
+    .feature-item .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-top: 5px;
+      flex-shrink: 0;
+    }
+    .status-done { background: var(--accent-green); box-shadow: 0 0 8px rgba(48, 209, 88, 0.4); }
+    .status-wip { background: var(--accent-orange); box-shadow: 0 0 8px rgba(255, 159, 10, 0.4); }
+    .status-stub { background: var(--accent-red); box-shadow: 0 0 8px rgba(255, 69, 58, 0.4); }
+    .status-dead { background: var(--text-tertiary); }
+    .feature-item .info h4 {
+      font-size: 0.9rem;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+    .feature-item .info p {
+      font-size: 0.78rem;
+      color: var(--text-tertiary);
+      line-height: 1.4;
+    }
+    .feature-item .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 8px;
+      font-size: 0.65rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 4px;
+    }
+    .badge-done { background: rgba(48,209,88,0.15); color: var(--accent-green); }
+    .badge-wip { background: rgba(255,159,10,0.15); color: var(--accent-orange); }
+    .badge-stub { background: rgba(255,69,58,0.15); color: var(--accent-red); }
+    .badge-dead { background: rgba(255,255,255,0.08); color: var(--text-tertiary); }
+
+    /* Bug list */
+    .bug-list { padding: 20px; }
+    .bug-item {
+      display: flex;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .bug-item:last-child { border-bottom: none; }
+    .bug-item .severity {
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+      height: fit-content;
+      margin-top: 2px;
+    }
+    .severity-high { background: rgba(255,69,58,0.15); color: var(--accent-red); }
+    .severity-medium { background: rgba(255,159,10,0.15); color: var(--accent-orange); }
+    .severity-low { background: rgba(100,210,255,0.15); color: var(--accent-teal); }
+    .bug-item .desc h4 { font-size: 0.88rem; font-weight: 600; }
+    .bug-item .desc p { font-size: 0.78rem; color: var(--text-tertiary); margin-top: 2px; line-height: 1.4; }
+
+    /* Component table */
+    .comp-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    .comp-table th {
+      text-align: left;
+      padding: 10px 16px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid var(--glass-border);
+    }
+    .comp-table td {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .comp-table tr:last-child td { border-bottom: none; }
+    .comp-table .mono { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; }
+    .comp-table .pill {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 10px;
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
+    .pill-active { background: rgba(48,209,88,0.15); color: var(--accent-green); }
+    .pill-unused { background: rgba(255,255,255,0.08); color: var(--text-tertiary); }
+    .pill-inline { background: rgba(10,132,255,0.15); color: var(--accent-blue); }
+
+    /* Tech stack */
+    .tech-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+      gap: 10px;
+      padding: 20px;
+    }
+    .tech-item {
+      padding: 12px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+    }
+    .tech-item .name { font-weight: 600; font-size: 0.88rem; }
+    .tech-item .detail { font-size: 0.75rem; color: var(--text-tertiary); margin-top: 2px; }
+
+    /* Polish list */
+    .polish-list { padding: 20px; }
+    .polish-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .polish-item:last-child { border-bottom: none; }
+    .polish-item .num {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: rgba(10,132,255,0.15);
+      color: var(--accent-blue);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.72rem;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .polish-item .desc h4 { font-size: 0.88rem; font-weight: 600; }
+    .polish-item .desc p { font-size: 0.78rem; color: var(--text-tertiary); line-height: 1.4; }
+
+    /* Timeline */
+    .timeline { padding: 20px; }
+    .timeline-item {
+      display: flex;
+      gap: 16px;
+      padding-bottom: 20px;
+      position: relative;
+    }
+    .timeline-item::before {
+      content: '';
+      position: absolute;
+      left: 15px;
+      top: 32px;
+      bottom: 0;
+      width: 2px;
+      background: var(--card-border);
+    }
+    .timeline-item:last-child::before { display: none; }
+    .timeline-item .dot {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      flex-shrink: 0;
+    }
+    .dot-done { background: rgba(48,209,88,0.2); color: var(--accent-green); }
+    .dot-current { background: rgba(10,132,255,0.2); color: var(--accent-blue); animation: pulse 2s ease-in-out infinite; }
+    .dot-next { background: rgba(255,255,255,0.08); color: var(--text-tertiary); }
+    .timeline-item .event h4 { font-size: 0.88rem; font-weight: 600; }
+    .timeline-item .event p { font-size: 0.78rem; color: var(--text-tertiary); margin-top: 2px; }
+
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(10,132,255,0.3); }
+      50% { box-shadow: 0 0 0 8px rgba(10,132,255,0); }
+    }
+
+    /* Legend */
+    .legend {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .score-row { grid-template-columns: repeat(2, 1fr); }
+      .feature-grid { grid-template-columns: 1fr; }
+      .header h1 { font-size: 1.8rem; }
+    }
+    @media (max-width: 480px) {
+      .score-row { grid-template-columns: 1fr 1fr; }
+      .container { padding: 24px 16px 60px; }
+    }
+
+    /* Progress bar */
+    .progress-bar-bg {
+      width: 100%;
+      height: 6px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 1.5s ease;
+    }
+  </style>
+</head>
+<body>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <h1>NewFI Guideline Processor</h1>
+      <p class="subtitle">Project Progress &amp; Status Dashboard</p>
+      <span class="version-badge">v0.1.0 &middot; Next.js 16.2.1 &middot; Static Export &middot; 2026-04-15</span>
+    </div>
+
+    <!-- Score Cards -->
+    <div class="score-row">
+      <div class="score-card">
+        <div class="ring-container">
+          <svg width="90" height="90" viewBox="0 0 90 90">
+            <circle class="ring-bg" cx="45" cy="45" r="38"/>
+            <circle class="ring-fg" cx="45" cy="45" r="38" stroke="var(--accent-green)"
+              stroke-dasharray="238.76" stroke-dashoffset="59.69"/>
+          </svg>
+        </div>
+        <div class="value" style="color: var(--accent-green)">75%</div>
+        <div class="label">Overall Completion</div>
+        <div class="sub">Core pipeline functional</div>
+      </div>
+      <div class="score-card">
+        <div class="ring-container">
+          <svg width="90" height="90" viewBox="0 0 90 90">
+            <circle class="ring-bg" cx="45" cy="45" r="38"/>
+            <circle class="ring-fg" cx="45" cy="45" r="38" stroke="var(--accent-orange)"
+              stroke-dasharray="238.76" stroke-dashoffset="95.5"/>
+          </svg>
+        </div>
+        <div class="value" style="color: var(--accent-orange)">60%</div>
+        <div class="label">Polish &amp; UX</div>
+        <div class="sub">Some rough edges remain</div>
+      </div>
+      <div class="score-card">
+        <div class="ring-container">
+          <svg width="90" height="90" viewBox="0 0 90 90">
+            <circle class="ring-bg" cx="45" cy="45" r="38"/>
+            <circle class="ring-fg" cx="45" cy="45" r="38" stroke="var(--accent-blue)"
+              stroke-dasharray="238.76" stroke-dashoffset="35.81"/>
+          </svg>
+        </div>
+        <div class="value" style="color: var(--accent-blue)">85%</div>
+        <div class="label">Architecture</div>
+        <div class="sub">Clean separation of concerns</div>
+      </div>
+      <div class="score-card">
+        <div class="ring-container">
+          <svg width="90" height="90" viewBox="0 0 90 90">
+            <circle class="ring-bg" cx="45" cy="45" r="38"/>
+            <circle class="ring-fg" cx="45" cy="45" r="38" stroke="var(--accent-red)"
+              stroke-dasharray="238.76" stroke-dashoffset="143.26"/>
+          </svg>
+        </div>
+        <div class="value" style="color: var(--accent-red)">40%</div>
+        <div class="label">Cleanup Needed</div>
+        <div class="sub">10 unused components, dead API routes</div>
+      </div>
+    </div>
+
+    <!-- Feature Status -->
+    <div class="section">
+      <h2 class="section-title"><span class="icon">&#x2714;</span> Feature Status</h2>
+      <div class="legend">
+        <div class="legend-item"><div class="status-dot status-done" style="width:8px;height:8px"></div> Working</div>
+        <div class="legend-item"><div class="status-dot status-wip" style="width:8px;height:8px"></div> In Progress / Partial</div>
+        <div class="legend-item"><div class="status-dot status-stub" style="width:8px;height:8px"></div> Stub / Non-functional</div>
+        <div class="legend-item"><div class="status-dot status-dead" style="width:8px;height:8px"></div> Dead Code</div>
+      </div>
+      <div class="glass-panel">
+        <div class="feature-grid">
+          <div class="feature-item">
+            <div class="status-dot status-done"></div>
+            <div class="info">
+              <h4>PDF Upload &amp; Drag-and-Drop</h4>
+              <p>Three-slot document upload (seller guide, baseline, overlays) with drag-and-drop and progress indicators</p>
+              <span class="badge badge-done">Working</span>
+            </div>
+          </div>
+          <div class="feature-item">
+            <div class="status-dot status-done"></div>
+            <div class="info">
+              <h4>Client-Side PDF Extraction</h4>
+              <p>pdfjs-dist parses PDFs entirely in-browser — section detection, paragraph splitting, severity/category auto-classification, dedup</p>
+              <span class="badge badge-done">Working</span>
+            </div>
+          </div>
+          <div class="feature-item">
+            <div class="status-dot status-done"></div>
+            <div class="info">
+              <h4>Gemini AI Extraction Fallback</h4>
+              <p>If client-side extraction fails, sends PDF as base64 to Gemini 2.0 Flash with retry and exponential backoff</p>
+              <span class="badge badge-done">Working</span>
+            </div>
+          </div>
+          <div class="feature-item">
+            <div class="status-dot status-done"></div>
+            <div class="info">
+              <h4>Guideline Display &amp; Filtering</h4>
+              <p>Category/severity filtering, full-text search, expand/collapse all, severity indicators, JSON cleanup logic</p>
+              <span class="badge badge-done">Working</span>
+            </div>
+          </div>
+          <div class="feature-item">
+            <div class="status-dot status-done"></div>
+            <div class="info">
+              <h4>Compliance Comparison</h4>
+              <p>Match / Partial / Conflict / Gap verdicts, animated score ring, summary stats, detailed row-by-row comparison view</p>
+              <span class="badge badge-done">Working</span>
+            </div>
+          </div>
+          <div class="feature-item">
+            <div class="status-dot status-done"></div>
+            <div class="info">
+              <h4>LarpGPT Chat</h4>
+              <p>Streaming chatbot with 3-tier provider cascade (Ollama → Gemini → Server route), markdown rendering including tables, suggested prompts</p>
+              <span class="badge badge-done">Working</span>
+            </div>
+          </div>
+          <div class="feature-item">
+            <div class="status-dot status-done"></div>
+            <div class="info">
+              <h4>CSV &amp; Excel Export</h4>
+              <p>Export guidelines and comparison results to CSV (Gemini) or full .xlsx (ExcelJS) with formatting</p>
+              <span class="badge badge-done">Working</span>
+            </div>
+          </div>
+          <div class="feature-item">
+            <div class="status-dot status-done"></div>
+            <div class="info">
+              <h4>Dark / Light Theme</h4>
+              <p>Animated toggle with localStorage persistence, CSS custom properties for full theme switching</p>
+              <span class="badge badge-done">Working</span>
+            </div>
+          </div>
+          <div class="feature-item">
+            <div class="status-dot status-done"></div>
+            <div class="info">
+              <h4>Provider Detection &amp; Settings</h4>
+              <p>Auto-detects Ollama + Gemini availability, caches results, modal for API key entry</p>
+              <span class="badge badge-done">Working</span>
+            </div>
+          </div>
+          <div class="feature-item">
+            <div class="status-dot status-wip"></div>
+            <div class="info">
+              <h4>Baseline Panel Import/Edit</h4>
+              <p>NewfiBaselinePanel renders but onBaselineTextChange and onImportFromPDF are wired as no-ops</p>
+              <span class="badge badge-wip">In Progress</span>
+            </div>
+          </div>
+          <div class="feature-item">
+            <div class="status-dot status-wip"></div>
+            <div class="info">
+              <h4>Overlay Document Export</h4>
+              <p>Overlay slot (C) shows extracted data but export callbacks are empty — onExportCSV / onExportExcel are no-ops</p>
+              <span class="badge badge-wip">In Progress</span>
+            </div>
+          </div>
+          <div class="feature-item">
+            <div class="status-dot status-wip"></div>
+            <div class="info">
+              <h4>Overlay Merge Logic</h4>
+              <p>Naive category-based string append — not a proper overlay/adjustment mechanism</p>
+              <span class="badge badge-wip">In Progress</span>
+            </div>
+          </div>
+          <div class="feature-item">
+            <div class="status-dot status-stub"></div>
+            <div class="info">
+              <h4>Analysis History</h4>
+              <p>history.ts module and HistoryPanel component exist but are not wired into the app flow — history is never saved or loaded</p>
+              <span class="badge badge-stub">Stub</span>
+            </div>
+          </div>
+          <div class="feature-item">
+            <div class="status-dot status-stub"></div>
+            <div class="info">
+              <h4>Baseline Data</h4>
+              <p>newfiGuidelines.ts has only 10 hardcoded mock rows — needs real NewFI underwriting guidelines</p>
+              <span class="badge badge-stub">Mock Data</span>
+            </div>
+          </div>
+          <div class="feature-item">
+            <div class="status-dot status-stub"></div>
+            <div class="info">
+              <h4>Error UI for Extraction Failures</h4>
+              <p>If both client-side and Gemini extraction fail, doc is marked failed but no user-visible error message shown</p>
+              <span class="badge badge-stub">Missing</span>
+            </div>
+          </div>
+          <div class="feature-item">
+            <div class="status-dot status-dead"></div>
+            <div class="info">
+              <h4>10 Unused Components</h4>
+              <p>ComplianceScore, FeatureCard, FileUpload, HistoryPanel, ProcessingIndicator, Recommendations, StatsCard, TabAnalysis, HeaderReviewModal, ComparisonPage</p>
+              <span class="badge badge-dead">Dead Code</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bugs & Issues -->
+    <div class="section">
+      <h2 class="section-title"><span class="icon">&#x1F41B;</span> Bugs &amp; Issues</h2>
+      <div class="glass-panel">
+        <div class="bug-list">
+          <div class="bug-item">
+            <span class="severity severity-high">HIGH</span>
+            <div class="desc">
+              <h4>Invalid CSS: <code>rgba:</code> instead of <code>rgba(</code></h4>
+              <p>NewfiBaselinePanel and GuidelineSkeleton use broken Tailwind syntax like <code>bg-[rgba:255,255,255,0.08)]</code> — these styles silently fail to apply.</p>
+            </div>
+          </div>
+          <div class="bug-item">
+            <span class="severity severity-high">HIGH</span>
+            <div class="desc">
+              <h4>TypeScript type mismatch: <code>activePage</code> missing &quot;chat&quot;</h4>
+              <p><code>lib/types.ts</code> defines <code>activePage: "upload" | "compare"</code> but the app actually uses a 3-tab layout including <code>"chat"</code>. Runtime works, type system is wrong.</p>
+            </div>
+          </div>
+          <div class="bug-item">
+            <span class="severity severity-medium">MED</span>
+            <div class="desc">
+              <h4>Duplicate inline ComparisonView in page.tsx</h4>
+              <p><code>page.tsx</code> defines its own <code>ComparisonView</code>, <code>ScoreRing</code>, and <code>ComparisonResults</code> inline while <code>ComparisonPage.tsx</code> in components/ has equivalent but different versions — maintenance risk.</p>
+            </div>
+          </div>
+          <div class="bug-item">
+            <span class="severity severity-medium">MED</span>
+            <div class="desc">
+              <h4>Duplicate/conflicting Tailwind dark classes</h4>
+              <p>Multiple files chain conflicting <code>dark:text-slate-500 dark:text-slate-400</code> — later class wins, earlier one is dead code creating specificity confusion.</p>
+            </div>
+          </div>
+          <div class="bug-item">
+            <span class="severity severity-medium">MED</span>
+            <div class="desc">
+              <h4>Static export incompatible with API routes</h4>
+              <p><code>next.config.ts</code> uses <code>output: "export"</code> but 7 API route handlers exist under <code>app/api/</code>. These routes won't function in a static deployment — dead code and deployment confusion risk.</p>
+            </div>
+          </div>
+          <div class="bug-item">
+            <span class="severity severity-low">LOW</span>
+            <div class="desc">
+              <h4>Gemini pageCount heuristic is inaccurate</h4>
+              <p><code>pageCount: Math.ceil(file.size / 50000)</code> estimates pages from file size, which is unreliable — embedded fonts and images skew it significantly.</p>
+            </div>
+          </div>
+          <div class="bug-item">
+            <span class="severity severity-low">LOW</span>
+            <div class="desc">
+              <h4>Potential chat abort controller leak</h4>
+              <p>If LarpGPT component unmounts during streaming, the abort controller in <code>abortRef</code> may not be properly cleaned up.</p>
+            </div>
+          </div>
+          <div class="bug-item">
+            <span class="severity severity-low">LOW</span>
+            <div class="desc">
+              <h4>Legacy CSS class aliases</h4>
+              <p>Both <code>glass</code>/<code>glass-strong</code>/<code>glass-card</code> AND <code>liquid-glass</code>/<code>liquid-glass-strong</code>/<code>liquid-glass-card</code> serve identical purposes. The <code>liquid-</code> variants are marked "Legacy aliases" but still present.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Component Map -->
+    <div class="section">
+      <h2 class="section-title"><span class="icon">&#x1F4CA;</span> Component Status Map</h2>
+      <div class="glass-panel">
+        <table class="comp-table">
+          <thead>
+            <tr>
+              <th>Component</th>
+              <th>Status</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="mono">page.tsx</td><td><span class="pill pill-active">Active</span></td><td>Main orchestrator with inline sub-components</td></tr>
+            <tr><td class="mono">DocumentUploadCard</td><td><span class="pill pill-active">Active</span></td><td>Drag-and-drop, 3-slot upload</td></tr>
+            <tr><td class="mono">GuidelineList</td><td><span class="pill pill-active">Active</span></td><td>Filter/search/expand guidelines</td></tr>
+            <tr><td class="mono">LarpGPT</td><td><span class="pill pill-active">Active</span></td><td>Streaming chat, multi-provider</td></tr>
+            <tr><td class="mono">NewfiBaselinePanel</td><td><span class="pill pill-active">Active</span></td><td>Partial — edit/import are no-ops</td></tr>
+            <tr><td class="mono">ThemeToggle</td><td><span class="pill pill-active">Active</span></td><td>Dark/light with persistence</td></tr>
+            <tr><td class="mono">ProviderSettings</td><td><span class="pill pill-active">Active</span></td><td>Gemini key, Ollama status</td></tr>
+            <tr><td class="mono">GuidelineSkeleton</td><td><span class="pill pill-active">Active</span></td><td>Loading placeholders (has CSS bug)</td></tr>
+            <tr><td class="mono">ComplianceScore</td><td><span class="pill pill-unused">Unused</span></td><td>Superseded by inline ScoreRing in page.tsx</td></tr>
+            <tr><td class="mono">FeatureCard</td><td><span class="pill pill-unused">Unused</span></td><td>Not imported anywhere</td></tr>
+            <tr><td class="mono">FileUpload</td><td><span class="pill pill-unused">Unused</span></td><td>Older upload, replaced by DocumentUploadCard</td></tr>
+            <tr><td class="mono">HistoryPanel</td><td><span class="pill pill-unused">Unused</span></td><td>Exists but not wired into app flow</td></tr>
+            <tr><td class="mono">ProcessingIndicator</td><td><span class="pill pill-unused">Unused</span></td><td>Not imported anywhere</td></tr>
+            <tr><td class="mono">Recommendations</td><td><span class="pill pill-unused">Unused</span></td><td>Not imported anywhere</td></tr>
+            <tr><td class="mono">StatsCard</td><td><span class="pill pill-unused">Unused</span></td><td>Not imported anywhere</td></tr>
+            <tr><td class="mono">TabAnalysis</td><td><span class="pill pill-unused">Unused</span></td><td>NON-QM/DSCR view, not used</td></tr>
+            <tr><td class="mono">HeaderReviewModal</td><td><span class="pill pill-unused">Unused</span></td><td>Not imported anywhere</td></tr>
+            <tr><td class="mono">ComparisonPage</td><td><span class="pill pill-inline">Dup</span></td><td>Duplicated by inline version in page.tsx</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tech Stack -->
+    <div class="section">
+      <h2 class="section-title"><span class="icon">&#x1F528;</span> Tech Stack</h2>
+      <div class="glass-panel">
+        <div class="tech-grid">
+          <div class="tech-item"><div class="name">Next.js 16.2.1</div><div class="detail">Static export (no SSR runtime)</div></div>
+          <div class="tech-item"><div class="name">React 19.2.4</div><div class="detail">UI framework</div></div>
+          <div class="tech-item"><div class="name">TypeScript 5.x</div><div class="detail">Strict mode</div></div>
+          <div class="tech-item"><div class="name">Tailwind CSS v4</div><div class="detail">Utility-first + glass-morphism</div></div>
+          <div class="tech-item"><div class="name">pdfjs-dist 5.6</div><div class="detail">Client-side PDF parsing</div></div>
+          <div class="tech-item"><div class="name">Gemini 2.0 Flash</div><div class="detail">Primary AI extraction + comparison</div></div>
+          <div class="tech-item"><div class="name">Ollama</div><div class="detail">Local AI fallback provider</div></div>
+          <div class="tech-item"><div class="name">ExcelJS 4.4</div><div class="detail">Excel .xlsx export</div></div>
+          <div class="tech-item"><div class="name">GitHub Pages</div><div class="detail">Static deployment target</div></div>
+          <div class="tech-item"><div class="name">Sora / Inter / Mono</div><div class="detail">Typography stack</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Polish & Adjustments -->
+    <div class="section">
+      <h2 class="section-title"><span class="icon">&#x2728;</span> Polish &amp; Adjustments Needed</h2>
+      <div class="glass-panel">
+        <div class="polish-list">
+          <div class="polish-item">
+            <div class="num">1</div>
+            <div class="desc">
+              <h4>Delete 10 unused components</h4>
+              <p>ComplianceScore, FeatureCard, FileUpload, HistoryPanel, ProcessingIndicator, Recommendations, StatsCard, TabAnalysis, HeaderReviewModal, ComparisonPage — all dead code from an earlier iteration. Removing them reduces bundle size and confusion.</p>
+            </div>
+          </div>
+          <div class="polish-item">
+            <div class="num">2</div>
+            <div class="desc">
+              <h4>Remove 7 dead API route handlers</h4>
+              <p><code>app/api/analyze/</code>, <code>ai/</code>, <code>upload/</code>, <code>extract-v3/</code>, <code>extract/</code>, <code>chat/</code>, <code>ollama-extract/</code> — all unused in static export deployment. They add build time and confusion.</p>
+            </div>
+          </div>
+          <div class="polish-item">
+            <div class="num">3</div>
+            <div class="desc">
+              <h4>Fix <code>rgba:</code> CSS syntax bugs</h4>
+              <p>NewfiBaselinePanel and GuidelineSkeleton have <code>rgba:255,255,255,0.08)</code> instead of <code>rgba(255,255,255,0.08)</code>. These silently produce no style.</p>
+            </div>
+          </div>
+          <div class="polish-item">
+            <div class="num">4</div>
+            <div class="desc">
+              <h4>Fix <code>activePage</code> type to include &quot;chat&quot;</h4>
+              <p>Add <code>"chat"</code> to the union type in <code>lib/types.ts</code> so TypeScript matches the actual runtime behavior.</p>
+            </div>
+          </div>
+          <div class="polish-item">
+            <div class="num">5</div>
+            <div class="desc">
+              <h4>Deduplicate ComparisonView / ScoreRing / ComparisonResults</h4>
+              <p>Extract the inline versions from <code>page.tsx</code> into proper components, or consolidate onto the existing <code>ComparisonPage.tsx</code>. Currently two divergent implementations exist.</p>
+            </div>
+          </div>
+          <div class="polish-item">
+            <div class="num">6</div>
+            <div class="desc">
+              <h4>Remove legacy <code>liquid-glass</code> CSS aliases</h4>
+              <p>The <code>liquid-glass</code> / <code>liquid-glass-strong</code> / <code>liquid-glass-card</code> classes in <code>globals.css</code> are marked "Legacy aliases" and duplicate the <code>glass</code> variants. Clean up and update any references.</p>
+            </div>
+          </div>
+          <div class="polish-item">
+            <div class="num">7</div>
+            <div class="desc">
+              <h4>Clean up duplicate/conflicting <code>dark:</code> Tailwind classes</h4>
+              <p>Files like DocumentUploadCard and GuidelineList chain <code>dark:text-slate-500 dark:text-slate-400</code> — only the last one applies. Remove the dead earlier ones.</p>
+            </div>
+          </div>
+          <div class="polish-item">
+            <div class="num">8</div>
+            <div class="desc">
+              <h4>Add error UI for extraction failures</h4>
+              <p>When both client-side and Gemini extraction fail, show a user-facing toast or inline error message explaining what went wrong and suggesting next steps.</p>
+            </div>
+          </div>
+          <div class="polish-item">
+            <div class="num">9</div>
+            <div class="desc">
+              <h4>Replace mock baseline data</h4>
+              <p><code>newfiGuidelines.ts</code> has only 10 hardcoded rows marked "Mock." Replace with real NewFI wholesale underwriting guidelines for production use.</p>
+            </div>
+          </div>
+          <div class="polish-item">
+            <div class="num">10</div>
+            <div class="desc">
+              <h4>Wire up HistoryPanel or remove it</h4>
+              <p><code>history.ts</code> and <code>HistoryPanel.tsx</code> exist but are not connected. Either integrate history into the app flow (save/load analysis sessions) or delete both files.</p>
+            </div>
+          </div>
+          <div class="polish-item">
+            <div class="num">11</div>
+            <div class="desc">
+              <h4>Remove unused npm dependencies</h4>
+              <p><code>pdf-parse</code>, <code>pdf2json</code>, <code>xlsx</code>, <code>openai</code>, and <code>@anthropic-ai/sdk</code> are in package.json but the static-export app doesn't use them (client-side uses <code>pdfjs-dist</code> and Gemini directly).</p>
+            </div>
+          </div>
+          <div class="polish-item">
+            <div class="num">12</div>
+            <div class="desc">
+              <h4>Improve overlay comparison logic</h4>
+              <p>Current overlay merge does a naive <code>[Overlay Adjustment]: text</code> string append. This should do a proper guideline-level merge with conflict detection and adjustment tracking.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Roadmap -->
+    <div class="section">
+      <h2 class="section-title"><span class="icon">&#x1F680;</span> Roadmap</h2>
+      <div class="glass-panel">
+        <div class="timeline">
+          <div class="timeline-item">
+            <div class="dot dot-done">&#x2713;</div>
+            <div class="event">
+              <h4>Client-Side Extraction Pipeline</h4>
+              <p>pdfjs-dist extraction, section detection, severity/classification, dedup — no server needed</p>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="dot dot-done">&#x2713;</div>
+            <div class="event">
+              <h4>Gemini AI Integration</h4>
+              <p>Fallback extraction, batch guideline comparison, streaming chat, retry with backoff</p>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="dot dot-done">&#x2713;</div>
+            <div class="event">
+              <h4>Glass-Morphism UI &amp; Theming</h4>
+              <p>Apple-inspired design system, animated backgrounds, dark/light mode, Sora + Inter typography</p>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="dot dot-done">&#x2713;</div>
+            <div class="event">
+              <h4>Static Deployment on GitHub Pages</h4>
+              <p>Next.js static export with basePath, client-only architecture, no server runtime</p>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="dot dot-current">&#x25CF;</div>
+            <div class="event">
+              <h4>Current: Polish &amp; Bug Fixes</h4>
+              <p>Fix CSS bugs, deduplicate components, remove dead code, wire up stubs, add error UI</p>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="dot dot-next">&#x25CB;</div>
+            <div class="event">
+              <h4>Real Baseline Data &amp; Overlay Logic</h4>
+              <p>Replace mock guidelines with real NewFI underwriting standards, implement proper overlay merge</p>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="dot dot-next">&#x25CB;</div>
+            <div class="event">
+              <h4>Analysis History &amp; Session Persistence</h4>
+              <p>Wire up HistoryPanel, localStorage-based session save/restore, comparison history</p>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="dot dot-next">&#x25CB;</div>
+            <div class="event">
+              <h4>Production Readiness</h4>
+              <p>Full test coverage, accessibility audit, performance optimization, real baseline data, proper error handling throughout</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- File Tree -->
+    <div class="section">
+      <h2 class="section-title"><span class="icon">&#x1F4C1;</span> Key Source Files</h2>
+      <div class="glass-panel" style="padding: 20px;">
+        <pre style="font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--text-secondary); line-height: 1.7;">
+larper/
+  app/
+    page.tsx                 <span style="color: var(--accent-green);">●</span> Main 3-tab orchestrator + inline sub-components
+    layout.tsx               <span style="color: var(--accent-green);">●</span> Root layout, fonts, theme init
+    globals.css              <span style="color: var(--accent-orange);">●</span> Glass-morphism system (has legacy aliases)
+    api/                     <span style="color: var(--accent-red);">●</span> 7 route handlers — <span style="color: var(--accent-red);">ALL DEAD</span> in static export
+  components/
+    DocumentUploadCard.tsx   <span style="color: var(--accent-green);">●</span> Active — drag-and-drop upload
+    GuidelineList.tsx        <span style="color: var(--accent-green);">●</span> Active — filter/search/display
+    LarpGPT.tsx              <span style="color: var(--accent-green);">●</span> Active — streaming chatbot
+    NewfiBaselinePanel.tsx   <span style="color: var(--accent-orange);">●</span> Active — partial (no-ops)
+    ThemeToggle.tsx           <span style="color: var(--accent-green);">●</span> Active
+    ProviderSettings.tsx      <span style="color: var(--accent-green);">●</span> Active
+    GuidelineSkeleton.tsx    <span style="color: var(--accent-orange);">●</span> Active — has CSS bug
+    <span style="color: var(--text-tertiary);">ComparisonPage.tsx      ○ Duplicate of page.tsx inline version
+    ComplianceScore.tsx      ○ Unused
+    FeatureCard.tsx          ○ Unused
+    FileUpload.tsx           ○ Unused
+    HistoryPanel.tsx         ○ Unused
+    ProcessingIndicator.tsx  ○ Unused
+    Recommendations.tsx      ○ Unused
+    StatsCard.tsx            ○ Unused
+    TabAnalysis.tsx          ○ Unused
+    HeaderReviewModal.tsx    ○ Unused</span>
+  lib/
+    app-context.tsx          <span style="color: var(--accent-green);">●</span> Central state + business logic
+    types.ts                 <span style="color: var(--accent-orange);">●</span> Type definitions (missing "chat" page)
+    ai-provider.ts           <span style="color: var(--accent-green);">●</span> Extraction helpers, similarity, Excel export
+    gemini.ts                <span style="color: var(--accent-green);">●</span> Gemini client for extraction + comparison
+    chat-provider.ts         <span style="color: var(--accent-green);">●</span> Multi-provider streaming chat
+    provider-detection.ts   <span style="color: var(--accent-green);">●</span> Ollama/Gemini availability check
+    pdf-extract-client.ts   <span style="color: var(--accent-green);">●</span> Pure client-side PDF parsing
+    newfiGuidelines.ts      <span style="color: var(--accent-orange);">●</span> Mock baseline data (10 rows)
+    history.ts               <span style="color: var(--accent-red);">●</span> Not wired into app
+    ai.ts                    <span style="color: var(--text-tertiary);">○ Legacy — uses older gemini-pro model</span></pre>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="text-align: center; margin-top: 40px; color: var(--text-tertiary); font-size: 0.78rem;">
+      <p>Generated 2026-04-15 &middot; NewFI Guideline Processor v0.1.0</p>
+      <p style="margin-top: 4px;">Next.js 16 &middot; React 19 &middot; TypeScript &middot; Tailwind v4 &middot; Gemini 2.0 Flash</p>
+    </div>
+  </div>
+
+  <script>
+    // Animate ring progress on load
+    document.addEventListener('DOMContentLoaded', () => {
+      const rings = document.querySelectorAll('.ring-fg');
+      rings.forEach(ring => {
+        const target = ring.getAttribute('stroke-dashoffset');
+        const full = parseFloat(ring.getAttribute('stroke-dasharray'));
+        ring.style.strokeDashoffset = full;
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            ring.style.strokeDashoffset = target;
+          });
+        });
+      });
+    });
+  </script>
+</body>
+</html>
